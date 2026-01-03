@@ -7,7 +7,6 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import WorkModal from '@/components/WorkModal'
 import CheckIcon from '@/components/icons/CheckIcon'
 import CrossIcon from '@/components/icons/CrossIcon'
-import PageHeader from '@/components/common/PageHeader'
 import SectionCard from '@/components/common/SectionCard'
 import LoadingSpinner from '@/components/common/LoadingSpinner'
 import { formatDate, formatCurrency } from '@/utils/formatters'
@@ -46,12 +45,12 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
   const router = useRouter()
   
   // Convert serialized dates back to Date objects
-  const deserializeClient = (clientData: any): ClientWithWorks | null => {
+  const deserializeClient = (clientData: SerializedClientWithWorks): ClientWithWorks | null => {
     if (!clientData) return null
     return {
       ...clientData,
       createdAt: new Date(clientData.createdAt),
-      works: clientData.works.map((work: any) => ({
+      works: clientData.works.map((work) => ({
         ...work,
         createdAt: new Date(work.createdAt),
         updatedAt: new Date(work.updatedAt),
@@ -99,6 +98,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     if (!initialClient && router.query.id) {
       fetchClient(router.query.id as string)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.query.id, initialClient])
 
   const fetchClient = async (id: string) => {
@@ -348,7 +348,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     setIsSaving(true)
     try {
       // Save updated client to database
-      const updatedClient = await safeApiCall<ClientWithWorks>(
+      await safeApiCall<ClientWithWorks>(
         `/api/clients/${client.id}`,
         {
           method: 'PATCH',
@@ -505,7 +505,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
 
     setIsAddingWork(true)
     try {
-      const response = await safeApiCall<{
+      await safeApiCall<{
         work: Work
         message: string
       }>('/api/works/create', {
@@ -515,7 +515,6 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
         },
         body: JSON.stringify({
           ...workData,
-          clientId: client.id,
           status: 'pending', // Always start as pending
           paymentReceived: false, // Always start with payment not received
         }),
@@ -574,7 +573,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      setDeleteWorkDialog({ isOpen: true, workId: work.id })
+                      handleDeleteWorkClick(work.id)
                     }}
                     disabled={isDeletingWork}
                     className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1051,6 +1050,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
               isOpen={isWorkModalOpen}
               onClose={() => setIsWorkModalOpen(false)}
               onSave={handleSaveWork}
+              clientId={client.id}
             />
           </div>
         </div>

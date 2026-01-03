@@ -1,6 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { ClientService } from '@/services/client.service'
-import { WorkService } from '@/services/work.service'
 import type { CreateClientInput, CreateWorkInput } from '@/types'
 
 interface CreateClientWithWorksRequest {

@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router'
-import { ClientWithWorks } from '@/types'
+import { ClientWithWorks, Work } from '@/types'
 import { KEYWORDS, highlightText, highlightWorkPurpose, findMatchingKeyword } from '@/utils/search.utils'
 import { useMemo } from 'react'
 
@@ -22,7 +22,7 @@ export default function ClientsTable({ clients, searchQuery = '' }: ClientsTable
     
     return clients.map((client) => {
       // Find matching work purposes
-      const matchingWorks = client.works?.filter((work: any) => {
+      const matchingWorks = client.works?.filter((work: Work) => {
         if (!work.purpose) return false
         const lowerPurpose = work.purpose.toLowerCase()
         if (matchingKeyword) {
@@ -32,7 +32,7 @@ export default function ClientsTable({ clients, searchQuery = '' }: ClientsTable
       }) || []
       
       // Highlight matching work purposes
-      const highlightedWorks = matchingWorks.map((work: any) => ({
+      const highlightedWorks = matchingWorks.map((work: Work) => ({
         ...work,
         highlightedPurpose: highlightWorkPurpose(work.purpose, searchQuery, KEYWORDS),
       }))
@@ -88,7 +88,7 @@ export default function ClientsTable({ clients, searchQuery = '' }: ClientsTable
                 <td className="px-4 sm:px-6 py-4 text-sm text-gray-700">
                   {client.matchingWorks && client.matchingWorks.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
-                      {client.matchingWorks.map((work: any, workIndex: number) => (
+                      {client.matchingWorks.map((work, workIndex: number) => (
                         <span
                           key={work.id || workIndex}
                           className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800"

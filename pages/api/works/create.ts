@@ -36,7 +36,7 @@ export default async function handler(
       clientId,
       purpose: purpose.trim(),
       fees: fees || 0,
-      completionDate: completionDate || null,
+      completionDate: completionDate || undefined,
       status: 'pending', // Always start as pending
       paymentReceived: false, // Always start with payment not received
     }

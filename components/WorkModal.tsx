@@ -6,10 +6,12 @@ interface WorkModalProps {
   isOpen: boolean
   onClose: () => void
   onSave: (work: CreateWorkInput) => void
+  clientId?: string
 }
 
-export default function WorkModal({ isOpen, onClose, onSave }: WorkModalProps) {
+export default function WorkModal({ isOpen, onClose, onSave, clientId = '' }: WorkModalProps) {
   const [formData, setFormData] = useState<CreateWorkInput>({
+    clientId: clientId,
     purpose: '',
     fees: undefined,
     completionDate: undefined,
@@ -24,13 +26,14 @@ export default function WorkModal({ isOpen, onClose, onSave }: WorkModalProps) {
     if (isOpen) {
       // Reset form when modal opens
       setFormData({
+        clientId: clientId,
         purpose: '',
         fees: undefined,
         completionDate: undefined,
       })
       setErrors({})
     }
-  }, [isOpen])
+  }, [isOpen, clientId])
 
   const handleChange = (field: keyof CreateWorkInput, value: string | number | Date | undefined) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -60,8 +63,9 @@ export default function WorkModal({ isOpen, onClose, onSave }: WorkModalProps) {
 
     if (validateForm()) {
       const workData: CreateWorkInput = {
+        clientId: formData.clientId,
         purpose: formData.purpose.trim(),
-        fees: formData.fees || 0,
+        fees: formData.fees,
         completionDate: formData.completionDate,
         status: 'pending',
       }

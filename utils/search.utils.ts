@@ -2,12 +2,14 @@
  * Search and keyword utilities
  */
 
+import type { ClientWithWorks, Work } from '@/types'
+
 export const KEYWORDS = ['GST', 'TDS', 'ITR', 'AUDIT'] as const
 
 export type Keyword = typeof KEYWORDS[number]
 
 export interface SearchMatch {
-  client: any
+  client: ClientWithWorks
   score: number
   matchedKeywords: string[]
   matchedFields: string[]
@@ -51,7 +53,7 @@ export function findMatchingKeyword(query: string, keywords: readonly string[]):
  * Higher score = better match, shown first in results
  */
 export function calculateSearchScore(
-  client: any,
+  client: ClientWithWorks,
   query: string,
   keywords: readonly string[]
 ): { score: number; matchedKeywords: string[]; matchedFields: string[] } {
@@ -77,7 +79,7 @@ export function calculateSearchScore(
 
   // Score work purpose matches (prioritize work-based matches)
   if (client.works && Array.isArray(client.works)) {
-    client.works.forEach((work: any) => {
+    client.works.forEach((work: Work) => {
       const purpose = (work.purpose || '').toLowerCase()
       
       // Check if query matches a keyword (partial or full)
@@ -106,8 +108,8 @@ export function calculateSearchScore(
 
   return {
     score,
-    matchedKeywords: [...new Set(matchedKeywords)], // Remove duplicate keywords
-    matchedFields: [...new Set(matchedFields)], // Remove duplicate fields
+    matchedKeywords: Array.from(new Set(matchedKeywords)), // Remove duplicate keywords
+    matchedFields: Array.from(new Set(matchedFields)), // Remove duplicate fields
   }
 }
 

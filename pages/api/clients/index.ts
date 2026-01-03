@@ -16,11 +16,12 @@ export default async function handler(
         const { prisma } = await import('@/services/database')
         try {
           await prisma.$queryRaw`SELECT 1`
-        } catch (dbError: any) {
+        } catch (dbError: unknown) {
           console.error('Database connection test failed:', dbError)
+          const errorMessage = dbError instanceof Error ? dbError.message : 'Please run: npx prisma migrate dev --name init'
           return res.status(503).json({ 
             error: 'Database not initialized',
-            details: dbError?.message || 'Please run: npx prisma migrate dev --name init',
+            details: errorMessage,
             hint: 'Make sure DATABASE_URL in .env points to the correct database file.'
           })
         }

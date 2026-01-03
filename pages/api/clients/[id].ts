@@ -44,7 +44,7 @@ export default async function handler(
         return res.status(400).json({ error: 'Client name cannot be empty' })
       }
 
-      const updatedClient = await ClientService.update(id, updateData)
+      await ClientService.update(id, updateData)
 
       // Return full client with works for data persistence and backward compatibility
       // This ensures works are preserved and available after refresh

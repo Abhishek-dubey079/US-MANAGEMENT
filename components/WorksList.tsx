@@ -10,7 +10,7 @@ export default function WorksList({ works, onRemove }: WorksListProps) {
   if (works.length === 0) {
     return (
       <div className="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 text-center">
-        <p className="text-sm text-gray-500">No works added yet. Click "ADD WORK" to add one.</p>
+        <p className="text-sm text-gray-500">No works added yet. Click {'"ADD WORK"'} to add one.</p>
       </div>
     )
   }

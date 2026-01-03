@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/router'
-import { WorkWithClient } from '@/types'
+import { WorkWithClient, ClientWithWorks, Work } from '@/types'
 import ClientsTable from './ClientsTable'
 import SearchBar from './SearchBar'
 import LoadingSpinner from './common/LoadingSpinner'
@@ -16,7 +16,7 @@ import ConfirmDialog from './ConfirmDialog'
 
 export default function Dashboard() {
   const router = useRouter()
-  const [clients, setClients] = useState<any[]>([])
+  const [clients, setClients] = useState<ClientWithWorks[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +41,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchClients()
     fetchHistory()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Refresh history when page becomes visible or when work changes occur
@@ -79,6 +80,7 @@ export default function Dashboard() {
       window.removeEventListener('focus', handleFocus)
       window.removeEventListener('workStatusChanged', handleWorkStatusChanged)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /**
@@ -106,7 +108,7 @@ export default function Dashboard() {
     // Categorize clients by match type
     const nameMatches: SearchMatch[] = []
     const workMatches: SearchMatch[] = []
-    const nonMatches: any[] = []
+    const nonMatches: ClientWithWorks[] = []
     
     // Track processed client IDs to prevent duplicates
     const processedIds = new Set<string>()
@@ -130,7 +132,7 @@ export default function Dashboard() {
                          matchedFields.includes('name')
 
       // Check for work purpose match (case-insensitive, partial match, supports keyword matching)
-      const matchesWork = client.works?.some((work: any) => {
+      const matchesWork = client.works?.some((work: Work) => {
         if (!work.purpose) return false
         const lowerPurpose = work.purpose.toLowerCase()
         // Check if query matches keyword (e.g., "td" → "TDS") or direct match
@@ -208,7 +210,7 @@ export default function Dashboard() {
       }
 
       // Fetch fresh data with automatic retry (3 attempts)
-      const data = await safeApiCall<any[]>('/api/clients', {
+      const data = await safeApiCall<ClientWithWorks[]>('/api/clients', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

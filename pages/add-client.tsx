@@ -9,7 +9,7 @@ import PageHeader from '@/components/common/PageHeader'
 import SectionCard from '@/components/common/SectionCard'
 import ErrorBanner from '@/components/common/ErrorBanner'
 import LoadingSpinner from '@/components/common/LoadingSpinner'
-import type { CreateClientInput, CreateWorkInput } from '@/types'
+import type { CreateClientInput, CreateWorkInput, Client, Work } from '@/types'
 import { saveClientDraft, getClientDraft, clearClientDraft, saveWorksDraft, getWorksDraft, clearWorksDraft } from '@/utils/cache.utils'
 import { safeApiCall } from '@/utils/api.utils'
 import type { ApiError } from '@/utils/api.utils'
@@ -87,9 +87,9 @@ const AddClient: NextPage = () => {
     setSaveError(null)
 
     try {
-      const data = await safeApiCall<{
-        client: any
-        works: any[]
+      await safeApiCall<{
+        client: Client
+        works: Work[]
         message: string
       }>('/api/clients/create', {
         method: 'POST',
@@ -223,6 +223,7 @@ const AddClient: NextPage = () => {
               isOpen={isWorkModalOpen}
               onClose={() => setIsWorkModalOpen(false)}
               onSave={handleSaveWork}
+              clientId=""
             />
           </div>
         </div>

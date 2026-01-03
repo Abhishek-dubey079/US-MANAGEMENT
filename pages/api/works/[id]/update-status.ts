@@ -59,10 +59,10 @@ export default async function handler(
               originalWorkId: id,
               originalClientId: workWithClient.client.id,
             })
-          } catch (error: any) {
+          } catch (error: unknown) {
             // Log duplicate attempt but don't fail the work status update
             // This can happen in race conditions, but unique constraint prevents actual duplicates
-            if (error.message?.includes('already exists')) {
+            if (error instanceof Error && error.message?.includes('already exists')) {
               console.warn(`History record already exists for work ${id}, skipping creation`)
             } else {
               // Re-throw other errors

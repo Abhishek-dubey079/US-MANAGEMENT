@@ -2,6 +2,8 @@
  * Local storage caching utilities for data persistence
  */
 
+import type { CreateClientInput, CreateWorkInput, ClientWithWorks } from '@/types'
+
 const CACHE_KEYS = {
   CLIENTS: 'fm_clients_cache',
   CLIENT_DRAFT: 'fm_client_draft',
@@ -88,15 +90,15 @@ export function clearAllCache(): void {
 /**
  * Save draft client data
  */
-export function saveClientDraft(clientData: any): void {
+export function saveClientDraft(clientData: CreateClientInput): void {
   saveToCache(CACHE_KEYS.CLIENT_DRAFT, clientData)
 }
 
 /**
  * Get draft client data
  */
-export function getClientDraft(): any | null {
-  return getFromCache(CACHE_KEYS.CLIENT_DRAFT)
+export function getClientDraft(): CreateClientInput | null {
+  return getFromCache<CreateClientInput>(CACHE_KEYS.CLIENT_DRAFT)
 }
 
 /**
@@ -109,15 +111,15 @@ export function clearClientDraft(): void {
 /**
  * Save draft works data
  */
-export function saveWorksDraft(worksData: any[]): void {
+export function saveWorksDraft(worksData: CreateWorkInput[]): void {
   saveToCache(CACHE_KEYS.WORKS_DRAFT, worksData)
 }
 
 /**
  * Get draft works data
  */
-export function getWorksDraft(): any[] | null {
-  return getFromCache(CACHE_KEYS.WORKS_DRAFT)
+export function getWorksDraft(): CreateWorkInput[] | null {
+  return getFromCache<CreateWorkInput[]>(CACHE_KEYS.WORKS_DRAFT)
 }
 
 /**
@@ -130,15 +132,15 @@ export function clearWorksDraft(): void {
 /**
  * Save clients cache
  */
-export function saveClientsCache(clients: any[]): void {
+export function saveClientsCache(clients: ClientWithWorks[]): void {
   saveToCache(CACHE_KEYS.CLIENTS, clients)
 }
 
 /**
  * Get clients cache
  */
-export function getClientsCache(): any[] | null {
-  return getFromCache(CACHE_KEYS.CLIENTS)
+export function getClientsCache(): ClientWithWorks[] | null {
+  return getFromCache<ClientWithWorks[]>(CACHE_KEYS.CLIENTS)
 }
 
 export { CACHE_KEYS }

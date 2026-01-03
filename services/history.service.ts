@@ -6,6 +6,16 @@
 import prisma from './database'
 import type { WorkWithClient } from '@/types'
 
+// Type guard for Prisma unique constraint errors
+function isPrismaUniqueConstraintError(error: unknown): error is { code: string; meta?: { target?: unknown[] } } {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'P2002'
+  )
+}
+
 export interface HistoryRecord {
   id: string
   clientName: string
@@ -78,9 +88,9 @@ export class HistoryService {
         originalClientId: history.originalClientId,
         createdAt: history.createdAt,
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Handle unique constraint violation (duplicate prevention)
-      if (error.code === 'P2002' && error.meta?.target?.includes('originalWorkId')) {
+      if (isPrismaUniqueConstraintError(error) && Array.isArray(error.meta?.target) && error.meta.target.includes('originalWorkId')) {
         throw new Error(`History record already exists for work ${data.originalWorkId}`)
       }
       throw error
