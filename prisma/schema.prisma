@@ -38,4 +38,24 @@ model Work {
   @@map("works")
 }
 
+model History {
+  id                  String   @id @default(cuid())
+  // Snapshot data - stored independently, not linked to Client or Work
+  clientName          String
+  clientPan           String?
+  workPurpose         String
+  fees                Float
+  completionDate      DateTime
+  paymentReceivedDate DateTime // Date when payment was received (when work became finalCompleted)
+  paymentReceived     Boolean  @default(true) // Always true for history records
+  // Optional references (not foreign keys - for tracking only)
+  originalWorkId      String?  // Reference to original work (may be deleted)
+  originalClientId    String?  // Reference to original client (may be deleted)
+  createdAt           DateTime @default(now())
+
+  @@map("history")
+  @@index([completionDate])
+  @@unique([originalWorkId]) // Ensure only one history record per work (prevents duplicates)
+}
+
 

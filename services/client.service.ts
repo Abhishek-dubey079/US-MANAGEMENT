@@ -85,6 +85,13 @@ export class ClientService {
 
   /**
    * Delete a client (will cascade delete all associated works)
+   * 
+   * IMPORTANT: This deletes:
+   * - Client record from clients table
+   * - All associated works from works table (cascade delete)
+   * 
+   * History records are NOT affected - they are stored independently with no foreign key relationships
+   * History records persist even after client/work deletion
    */
   static async delete(id: string): Promise<Client> {
     return prisma.client.delete({

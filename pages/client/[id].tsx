@@ -84,6 +84,16 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     workId: null,
     newStatus: null,
   })
+  const [deleteDialog, setDeleteDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteWorkDialog, setDeleteWorkDialog] = useState<{
+    isOpen: boolean
+    workId: string | null
+  }>({
+    isOpen: false,
+    workId: null,
+  })
+  const [isDeletingWork, setIsDeletingWork] = useState(false)
 
   useEffect(() => {
     if (!initialClient && router.query.id) {
@@ -186,7 +196,15 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
       } else {
         // Refresh to get latest data from server
         if (router.query.id) {
-          fetchClient(router.query.id as string)
+          await fetchClient(router.query.id as string)
+        }
+        
+        // Notify dashboard to refresh history if work became finalCompleted
+        // This ensures history section stays up-to-date
+        if (newStatus === 'finalCompleted' && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workStatusChanged', { 
+            detail: { status: 'finalCompleted' } 
+          }))
         }
       }
     } catch (error) {
@@ -370,6 +388,111 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
   }
 
   /**
+   * Handle delete client functionality
+   * - Shows confirmation dialog
+   * - Deletes client and all associated works (cascade delete)
+   * - Clears cache and redirects to Dashboard
+   */
+  const handleDeleteClick = () => {
+    setDeleteDialog(true)
+  }
+
+  const handleCancelDelete = () => {
+    setDeleteDialog(false)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!client) return
+
+    setIsDeleting(true)
+    try {
+      const response = await fetch(`/api/clients/${client.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete client')
+      }
+
+      // Clear clients cache so Dashboard shows updated list immediately
+      clearCache(CACHE_KEYS.CLIENTS)
+
+      // Redirect to Dashboard
+      router.push('/')
+    } catch (error) {
+      console.error('Error deleting client:', error)
+      setIsDeleting(false)
+      setDeleteDialog(false)
+      alert(`Failed to delete client: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Handle delete work functionality
+   * - Only allows deletion of Final Completed works
+   * - Shows confirmation dialog
+   * - Deletes work from database
+   * - Refreshes client data
+   */
+  const handleDeleteWorkClick = (workId: string) => {
+    setDeleteWorkDialog({ isOpen: true, workId })
+  }
+
+  const handleCancelDeleteWork = () => {
+    setDeleteWorkDialog({ isOpen: false, workId: null })
+  }
+
+  const handleConfirmDeleteWork = async () => {
+    if (!client || !deleteWorkDialog.workId) return
+
+    // Verify the work is still finalCompleted (safety check)
+    const work = client.works.find((w) => w.id === deleteWorkDialog.workId)
+    if (!work || work.status !== 'finalCompleted') {
+      alert('Only Final Completed works can be deleted.')
+      setDeleteWorkDialog({ isOpen: false, workId: null })
+      return
+    }
+
+    setIsDeletingWork(true)
+    try {
+      const response = await fetch(`/api/works/${deleteWorkDialog.workId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete work')
+      }
+
+      // Refresh client data to show updated works list
+      // The work is removed from the client's active work list only
+      if (router.query.id) {
+        await fetchClient(router.query.id as string)
+      }
+
+      // IMPORTANT: History records are NOT affected by work deletion
+      // History stores independent snapshot data and persists even after work deletion
+      // No need to refresh history - it remains unchanged
+
+      setDeleteWorkDialog({ isOpen: false, workId: null })
+    } catch (error) {
+      console.error('Error deleting work:', error)
+      setIsDeletingWork(false)
+      setDeleteWorkDialog({ isOpen: false, workId: null })
+      alert(`Failed to delete work: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsDeletingWork(false)
+    }
+  }
+
+  /**
    * Handle adding new work to the client
    * New work always starts with status 'pending' and paymentReceived: false
    */
@@ -432,17 +555,35 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
         <div className="flex items-start gap-4">
           <div className="flex-1">
             <div className="mb-3">
-              <div className="flex items-center gap-2 mb-2">
-                <h3 className="text-base font-semibold text-gray-900">{work.purpose}</h3>
-                {work.status === 'completed' && (
-                  <span className="text-red-600" title="Completed">
-                    <CrossIcon size={18} className="text-red-600" />
-                  </span>
-                )}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold text-gray-900">{work.purpose}</h3>
+                  {work.status === 'completed' && (
+                    <span className="text-red-600" title="Completed">
+                      <CrossIcon size={18} className="text-red-600" />
+                    </span>
+                  )}
+                  {work.status === 'finalCompleted' && (
+                    <span className="text-green-600" title="Final Completed">
+                      <CheckIcon size={18} className="text-green-600" />
+                    </span>
+                  )}
+                </div>
+                {/* Delete button - only for Final Completed works */}
                 {work.status === 'finalCompleted' && (
-                  <span className="text-green-600" title="Final Completed">
-                    <CheckIcon size={18} className="text-green-600" />
-                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeleteWorkDialog({ isOpen: true, workId: work.id })
+                    }}
+                    disabled={isDeletingWork}
+                    className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Delete this completed work"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">
@@ -569,25 +710,46 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
             <div className="mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Client Details</h1>
-                <button
-                  onClick={handleAddWork}
-                  disabled={isAddingWork}
-                  className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isAddingWork ? (
-                    <>
-                      <LoadingSpinner size="sm" />
-                      <span>Adding...</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      <span>ADD WORK</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={handleDeleteClick}
+                    disabled={isDeleting}
+                    className="rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <LoadingSpinner size="sm" />
+                        <span>Deleting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span>DELETE CLIENT</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleAddWork}
+                    disabled={isAddingWork}
+                    className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isAddingWork ? (
+                      <>
+                        <LoadingSpinner size="sm" />
+                        <span>Adding...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span>ADD WORK</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -860,6 +1022,28 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
               cancelText="Cancel"
               onConfirm={handleConfirmStatusUpdate}
               onCancel={handleCancelStatusUpdate}
+            />
+
+            {/* Delete Work Confirmation Dialog */}
+            <ConfirmDialog
+              isOpen={deleteWorkDialog.isOpen}
+              title="Delete Work"
+              message="Delete this completed work from records?"
+              confirmText="Delete"
+              cancelText="Cancel"
+              onConfirm={handleConfirmDeleteWork}
+              onCancel={handleCancelDeleteWork}
+            />
+
+            {/* Delete Client Confirmation Dialog */}
+            <ConfirmDialog
+              isOpen={deleteDialog}
+              title="Delete Client"
+              message="Are you sure you want to delete this client? This action cannot be undone. All associated works (pending, completed, and final completed) will also be deleted."
+              confirmText="Delete"
+              cancelText="Cancel"
+              onConfirm={handleConfirmDelete}
+              onCancel={handleCancelDelete}
             />
 
             {/* Work Modal */}

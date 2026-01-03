@@ -105,6 +105,10 @@ export class WorkService {
 
   /**
    * Delete a work entry
+   * 
+   * IMPORTANT: This only deletes the work from the works table (removes from client's active work list)
+   * History records are NOT affected - they are stored independently with no foreign key relationships
+   * History records persist even after work deletion
    */
   static async delete(id: string): Promise<Work> {
     const work = await prisma.work.delete({
@@ -126,6 +130,39 @@ export class WorkService {
       },
     })
     return works.map(mapWork)
+  }
+
+  /**
+   * Get all Final Completed works with client information
+   * Returns works ordered by completion date (most recent first)
+   * Used for History section
+   */
+  static async findFinalCompletedWithClients(): Promise<WorkWithClient[]> {
+    const works = await prisma.work.findMany({
+      where: { 
+        status: 'FINAL_COMPLETED',
+        completionDate: { not: null }, // Only works with completion date
+      },
+      include: {
+        client: true,
+      },
+      orderBy: {
+        completionDate: 'desc', // Most recent completion date first
+      },
+    })
+    
+    return works.map((work) => ({
+      ...mapWork(work),
+      client: {
+        id: work.client.id,
+        name: work.client.name,
+        pan: work.client.pan,
+        aadhaar: work.client.aadhaar,
+        address: work.client.address,
+        phone: work.client.phone,
+        createdAt: work.client.createdAt,
+      },
+    }))
   }
 }
 

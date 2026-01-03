@@ -73,8 +73,52 @@ export default async function handler(
         retryable: true
       })
     }
+  } else if (req.method === 'DELETE') {
+    try {
+      // Ensure database connection
+      const isConnected = await ensureDatabaseConnection()
+      if (!isConnected) {
+        return res.status(503).json({ 
+          error: 'Database connection failed. Please try again.',
+          retryable: true
+        })
+      }
+
+      // Check if client exists
+      const existingClient = await ClientService.findById(id)
+      if (!existingClient) {
+        return res.status(404).json({ error: 'Client not found' })
+      }
+
+      // Delete client (cascade delete will automatically remove all associated works)
+      // This removes:
+      // - Client record from clients table
+      // - All active works (pending, completed, finalCompleted) from works table
+      // This ensures no orphan work records remain in the database
+      await ClientService.delete(id)
+
+      // IMPORTANT: History records are NOT deleted when client is deleted
+      // History stores independent snapshot data with no foreign key relationships
+      // - History records persist even after client deletion
+      // - History records persist even after work deletion
+      // - History is a separate, independent data source
+      // - History contains snapshot data that continues to exist independently
+
+      res.status(200).json({ 
+        message: 'Client and all associated active works deleted successfully. History records remain intact.',
+        deletedClientId: id
+      })
+    } catch (error) {
+      console.error('Error deleting client:', error)
+      
+      res.status(500).json({ 
+        error: 'Failed to delete client',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        retryable: true
+      })
+    }
   } else {
-    res.setHeader('Allow', ['GET', 'PATCH'])
+    res.setHeader('Allow', ['GET', 'PATCH', 'DELETE'])
     res.status(405).json({ error: `Method ${req.method} Not Allowed` })
   }
 }
