@@ -24,7 +24,10 @@ export default async function handler(
       res.status(200).json(client)
     } catch (error) {
       console.error('Error fetching client:', error)
-      res.status(500).json({ error: 'Failed to fetch client' })
+      res.status(500).json({ 
+        error: 'Failed to fetch client',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      })
     }
   } else if (req.method === 'PATCH') {
     try {

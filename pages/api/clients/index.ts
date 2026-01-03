@@ -22,7 +22,7 @@ export default async function handler(
           return res.status(503).json({ 
             error: 'Database not initialized',
             details: errorMessage,
-            hint: 'Make sure DATABASE_URL in .env points to the correct database file.'
+            hint: 'Make sure DATABASE_URL in .env points to your PostgreSQL database.'
           })
         }
         return res.status(503).json({ 

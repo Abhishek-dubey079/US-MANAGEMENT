@@ -96,7 +96,7 @@ export default async function handler(
         })
       }
       
-      if (error.message.includes('SQLite') || error.message.includes('database')) {
+      if (error.message.includes('database')) {
         return res.status(503).json({ 
           error: 'Database error. Please try again.',
           retryable: true,

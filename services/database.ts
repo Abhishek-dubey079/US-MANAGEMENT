@@ -28,7 +28,7 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 export async function ensureDatabaseConnection(): Promise<boolean> {
   try {
     // Test the connection by running a simple query
-    // For SQLite, we'll test by trying to query the clients table
+    // For PostgreSQL, we'll test by trying to query the clients table
     await prisma.client.findFirst()
     return true
   } catch (error: unknown) {

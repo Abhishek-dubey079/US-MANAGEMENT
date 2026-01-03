@@ -1,6 +1,6 @@
 /**
  * Utility functions for converting between TypeScript WorkStatus and database string values
- * SQLite doesn't support enums, so we use strings instead
+ * Status values are stored as strings in the database
  */
 
 import { WorkStatus } from '@/types'
