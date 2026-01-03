@@ -1,0 +1,41 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  pan       String?  @unique
+  aadhaar   String?
+  address   String?
+  phone     String?
+  createdAt DateTime @default(now())
+  works     Work[]
+
+  @@map("clients")
+}
+
+model Work {
+  id              String   @id @default(cuid())
+  clientId        String
+  purpose         String
+  fees            Float    @default(0)
+  completionDate  DateTime?
+  status          String   @default("PENDING")
+  paymentReceived Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("works")
+}
+
+
