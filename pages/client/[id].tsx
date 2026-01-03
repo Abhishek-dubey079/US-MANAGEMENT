@@ -2,7 +2,7 @@ import type { NextPage, GetServerSideProps } from 'next'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useState, useEffect } from 'react'
-import type { ClientWithWorks, Work, CreateWorkInput } from '@/types'
+import type { ClientWithWorks, Work, CreateWorkInput, UpdateClientInput } from '@/types'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import WorkModal from '@/components/WorkModal'
 import CheckIcon from '@/components/icons/CheckIcon'
@@ -13,6 +13,8 @@ import LoadingSpinner from '@/components/common/LoadingSpinner'
 import { formatDate, formatCurrency } from '@/utils/formatters'
 import { safeApiCall } from '@/utils/api.utils'
 import type { ApiError } from '@/utils/api.utils'
+import { validateRequired, validatePAN, validateAadhaar, validatePhone } from '@/utils/validation'
+import { clearCache, CACHE_KEYS } from '@/utils/cache.utils'
 
 // Serialized version for getServerSideProps (dates as ISO strings)
 interface SerializedClientWithWorks {
@@ -66,6 +68,13 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
   const [loading, setLoading] = useState(!initialClient)
   const [isWorkModalOpen, setIsWorkModalOpen] = useState(false)
   const [isAddingWork, setIsAddingWork] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editFormData, setEditFormData] = useState<UpdateClientInput>({})
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
+  const [originalClient, setOriginalClient] = useState<ClientWithWorks | null>(
+    initialClient ? deserializeClient(initialClient) : null
+  )
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
     workId: string | null
@@ -89,7 +98,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
       if (response.ok) {
         const data = await response.json()
         // Convert date strings to Date objects
-        setClient(deserializeClient(data))
+        const deserializedClient = deserializeClient(data)
+        setClient(deserializedClient)
+        // Update original client backup for cancel functionality
+        setOriginalClient(deserializedClient)
       } else {
         console.error('Failed to fetch client')
       }
@@ -187,6 +199,174 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
 
   const handleCancelStatusUpdate = () => {
     setConfirmDialog({ isOpen: false, workId: null, newStatus: null })
+  }
+
+  /**
+   * Handle edit client functionality
+   */
+  const handleEdit = () => {
+    if (!client) return
+    // Store original client data for cancel
+    setOriginalClient({ ...client })
+    // Initialize edit form with current client data
+    setEditFormData({
+      name: client.name,
+      pan: client.pan || '',
+      aadhaar: client.aadhaar || '',
+      address: client.address || '',
+      phone: client.phone || '',
+    })
+    setEditErrors({})
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    // Restore original data
+    if (originalClient) {
+      setClient({ ...originalClient })
+    }
+    setEditFormData({})
+    setEditErrors({})
+    setIsEditing(false)
+  }
+
+  const handleEditFieldChange = (field: keyof UpdateClientInput, value: string) => {
+    setEditFormData((prev) => ({ ...prev, [field]: value }))
+    // Clear error when user starts typing
+    if (editErrors[field]) {
+      setEditErrors((prev) => {
+        const newErrors = { ...prev }
+        delete newErrors[field]
+        return newErrors
+      })
+    }
+  }
+
+  const handleEditFieldBlur = (field: keyof UpdateClientInput) => {
+    const value = (editFormData[field] as string) || ''
+    let error: string | undefined
+
+    switch (field) {
+      case 'name':
+        const nameValidation = validateRequired(value, 'Client Name is required')
+        error = nameValidation.isValid ? undefined : nameValidation.error
+        break
+      case 'pan':
+        if (value) {
+          const panValidation = validatePAN(value)
+          error = panValidation.isValid ? undefined : panValidation.error
+        }
+        break
+      case 'aadhaar':
+        if (value) {
+          const aadhaarValidation = validateAadhaar(value)
+          error = aadhaarValidation.isValid ? undefined : aadhaarValidation.error
+        }
+        break
+      case 'phone':
+        if (value) {
+          const phoneValidation = validatePhone(value)
+          error = phoneValidation.isValid ? undefined : phoneValidation.error
+        }
+        break
+    }
+
+    if (error) {
+      setEditErrors((prev) => ({ ...prev, [field]: error! }))
+    }
+  }
+
+  /**
+   * Save edited client information
+   * 
+   * Data Safety & Persistence:
+   * - Saves to database via API
+   * - Refreshes client data from server to ensure persistence
+   * - Preserves all works (work status and payment logic unaffected)
+   * - Clears Dashboard cache so search results update immediately
+   * - Maintains backward compatibility with existing data structures
+   */
+  const handleSaveEdit = async () => {
+    if (!client) return
+
+    // Validate form
+    const errors: Record<string, string> = {}
+    
+    // Validate name (required)
+    const nameValidation = validateRequired(editFormData.name || '', 'Client Name is required')
+    if (!nameValidation.isValid && nameValidation.error) {
+      errors.name = nameValidation.error
+    }
+
+    // Validate PAN (optional)
+    if (editFormData.pan) {
+      const panValidation = validatePAN(editFormData.pan)
+      if (!panValidation.isValid && panValidation.error) {
+        errors.pan = panValidation.error
+      }
+    }
+
+    // Validate Aadhaar (optional)
+    if (editFormData.aadhaar) {
+      const aadhaarValidation = validateAadhaar(editFormData.aadhaar)
+      if (!aadhaarValidation.isValid && aadhaarValidation.error) {
+        errors.aadhaar = aadhaarValidation.error
+      }
+    }
+
+    // Validate Phone (optional)
+    if (editFormData.phone) {
+      const phoneValidation = validatePhone(editFormData.phone)
+      if (!phoneValidation.isValid && phoneValidation.error) {
+        errors.phone = phoneValidation.error
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setEditErrors(errors)
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      // Save updated client to database
+      const updatedClient = await safeApiCall<ClientWithWorks>(
+        `/api/clients/${client.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: editFormData.name?.trim(),
+            pan: editFormData.pan?.trim() || null,
+            aadhaar: editFormData.aadhaar?.trim() || null,
+            address: editFormData.address?.trim() || null,
+            phone: editFormData.phone?.trim() || null,
+          }),
+        },
+        3
+      )
+
+      // Refresh client data from server to ensure persistence
+      // This ensures we have the latest data including all works
+      await fetchClient(client.id)
+
+      // Invalidate clients cache so Dashboard search results update immediately
+      // This ensures search results reflect the updated client information
+      clearCache(CACHE_KEYS.CLIENTS)
+
+      // Exit edit mode
+      setIsEditing(false)
+      setEditFormData({})
+      setEditErrors({})
+    } catch (error) {
+      console.error('Error updating client:', error)
+      const apiError = error as ApiError
+      alert(`Failed to update client: ${apiError.message || 'Unknown error'}`)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   /**
@@ -412,7 +592,56 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
             </div>
 
             {/* Client Information Card */}
-            <SectionCard title="Client Information" className="mb-6">
+            <SectionCard 
+              title="Client Information" 
+              className="mb-6"
+              headerClassName="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 -mt-3.5 mb-4">
+                <div></div>
+                {!isEditing ? (
+                  <button
+                    onClick={handleEdit}
+                    className="rounded-lg bg-gray-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 flex items-center gap-2"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    EDIT
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={isSaving}
+                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      CANCEL
+                    </button>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={isSaving}
+                      className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isSaving ? (
+                        <>
+                          <LoadingSpinner size="sm" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          SAVE
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!isEditing ? (
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <dt className="text-sm font-medium text-gray-500">Client/Company Name</dt>
@@ -439,6 +668,131 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
                     <dd className="mt-1 text-sm text-gray-900">{formatDate(client.createdAt)}</dd>
                   </div>
                 </dl>
+              ) : (
+                <form className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {/* Client Name */}
+                    <div>
+                      <label htmlFor="edit-name" className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Client Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        id="edit-name"
+                        value={editFormData.name || ''}
+                        onChange={(e) => handleEditFieldChange('name', e.target.value)}
+                        onBlur={() => handleEditFieldBlur('name')}
+                        className={`block w-full rounded-lg border ${
+                          editErrors.name
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        placeholder="Enter client or company name"
+                        required
+                      />
+                      {editErrors.name && (
+                        <p className="mt-1.5 text-sm text-red-600">{editErrors.name}</p>
+                      )}
+                    </div>
+
+                    {/* PAN Number */}
+                    <div>
+                      <label htmlFor="edit-pan" className="block text-sm font-medium text-gray-700 mb-1.5">
+                        PAN Number
+                      </label>
+                      <input
+                        type="text"
+                        id="edit-pan"
+                        value={editFormData.pan || ''}
+                        onChange={(e) => {
+                          const formattedPan = e.target.value.toUpperCase().slice(0, 10)
+                          handleEditFieldChange('pan', formattedPan)
+                        }}
+                        onBlur={() => handleEditFieldBlur('pan')}
+                        className={`block w-full rounded-lg border ${
+                          editErrors.pan
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        placeholder="ABCDE1234F"
+                        maxLength={10}
+                      />
+                      {editErrors.pan && (
+                        <p className="mt-1.5 text-sm text-red-600">{editErrors.pan}</p>
+                      )}
+                    </div>
+
+                    {/* Aadhaar Number */}
+                    <div>
+                      <label htmlFor="edit-aadhaar" className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Aadhaar Number
+                      </label>
+                      <input
+                        type="text"
+                        id="edit-aadhaar"
+                        value={editFormData.aadhaar || ''}
+                        onChange={(e) => {
+                          const numericValue = e.target.value.replace(/\D/g, '').slice(0, 12)
+                          handleEditFieldChange('aadhaar', numericValue)
+                        }}
+                        onBlur={() => handleEditFieldBlur('aadhaar')}
+                        className={`block w-full rounded-lg border ${
+                          editErrors.aadhaar
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        placeholder="123456789012"
+                        maxLength={12}
+                      />
+                      {editErrors.aadhaar && (
+                        <p className="mt-1.5 text-sm text-red-600">{editErrors.aadhaar}</p>
+                      )}
+                    </div>
+
+                    {/* Phone Number */}
+                    <div>
+                      <label htmlFor="edit-phone" className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Phone Number
+                      </label>
+                      <input
+                        type="text"
+                        id="edit-phone"
+                        value={editFormData.phone || ''}
+                        onChange={(e) => {
+                          const numericValue = e.target.value.replace(/\D/g, '').slice(0, 10)
+                          handleEditFieldChange('phone', numericValue)
+                        }}
+                        onBlur={() => handleEditFieldBlur('phone')}
+                        className={`block w-full rounded-lg border ${
+                          editErrors.phone
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        placeholder="10-digit number"
+                        maxLength={10}
+                      />
+                      {editErrors.phone && (
+                        <p className="mt-1.5 text-sm text-red-600">{editErrors.phone}</p>
+                      )}
+                    </div>
+
+                    {/* Address */}
+                    <div className="sm:col-span-2">
+                      <label htmlFor="edit-address" className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Address
+                      </label>
+                      <textarea
+                        id="edit-address"
+                        value={editFormData.address || ''}
+                        onChange={(e) => handleEditFieldChange('address', e.target.value)}
+                        rows={4}
+                        className="block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter client address"
+                      />
+                    </div>
+                  </div>
+                </form>
+              )}
             </SectionCard>
 
             {/* Works Section */}

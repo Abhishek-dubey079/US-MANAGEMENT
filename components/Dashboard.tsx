@@ -7,7 +7,7 @@ import LoadingSpinner from './common/LoadingSpinner'
 import ErrorBanner from './common/ErrorBanner'
 import SectionCard from './common/SectionCard'
 import { useDebounce } from '@/hooks/useDebounce'
-import { KEYWORDS, calculateSearchScore, type SearchMatch } from '@/utils/search.utils'
+import { KEYWORDS, calculateSearchScore, findMatchingKeyword, type SearchMatch } from '@/utils/search.utils'
 import { safeApiCall } from '@/utils/api.utils'
 import { saveClientsCache, getClientsCache } from '@/utils/cache.utils'
 import type { ApiError } from '@/utils/api.utils'
@@ -28,58 +28,109 @@ export default function Dashboard() {
   }, [])
 
   /**
-   * Enhanced keyword-based search with intelligent sorting
-   * - Searches in client names and work purposes
-   * - Prioritizes keyword matches (GST, TDS, ITR, AUDIT)
-   * - Sorts by relevance score, then alphabetically
+   * Enhanced search with clear priority logic:
+   * Priority 1: Client name match (highest priority)
+   * Priority 2: Work purpose match
+   * Priority 3: Other clients (non-matching, preserve original order)
+   * 
+   * Features:
+   * - Case-insensitive search
+   * - Partial matching supported
+   * - No duplicate entries
+   * - Stable rendering (uses client.id as key)
    */
   const filteredClients = useMemo(() => {
+    // Return all clients if no search query
     if (!debouncedSearchQuery.trim()) {
       return clients
     }
 
     const query = debouncedSearchQuery.trim()
     const lowerQuery = query.toLowerCase()
+    const matchingKeyword = findMatchingKeyword(query, KEYWORDS)
 
-    // Calculate relevance scores for all clients
-    const clientsWithScores: SearchMatch[] = clients
-      .map((client) => {
-        const { score, matchedKeywords, matchedFields } = calculateSearchScore(
-          client,
-          query,
-          KEYWORDS
-        )
+    // Categorize clients by match type
+    const nameMatches: SearchMatch[] = []
+    const workMatches: SearchMatch[] = []
+    const nonMatches: any[] = []
+    
+    // Track processed client IDs to prevent duplicates
+    const processedIds = new Set<string>()
 
-        // Additional checks for partial name/work matches
-        const clientName = (client.name || '').toLowerCase()
-        const matchesName = clientName.includes(lowerQuery)
-        const matchesWork = client.works?.some((work: any) =>
-          (work.purpose || '').toLowerCase().includes(lowerQuery)
-        )
+    clients.forEach((client) => {
+      // Skip if already processed (prevent duplicates)
+      if (processedIds.has(client.id)) {
+        return
+      }
+      processedIds.add(client.id)
 
-        // Include client if it matches search criteria
-        if (score > 0 || matchesName || matchesWork) {
-          return {
-            client,
-            score,
-            matchedKeywords,
-            matchedFields,
-          }
+      const { score, matchedKeywords, matchedFields } = calculateSearchScore(
+        client,
+        query,
+        KEYWORDS
+      )
+
+      // Check for client name match (case-insensitive, partial match)
+      const clientName = (client.name || '').toLowerCase()
+      const matchesName = clientName.includes(lowerQuery) || 
+                         matchedFields.includes('name')
+
+      // Check for work purpose match (case-insensitive, partial match, supports keyword matching)
+      const matchesWork = client.works?.some((work: any) => {
+        if (!work.purpose) return false
+        const lowerPurpose = work.purpose.toLowerCase()
+        // Check if query matches keyword (e.g., "td" → "TDS") or direct match
+        if (matchingKeyword) {
+          return lowerPurpose.includes(matchingKeyword.toLowerCase())
         }
+        return lowerPurpose.includes(lowerQuery)
+      }) || matchedFields.includes('work')
 
-        return null
-      })
-      .filter((item): item is SearchMatch => item !== null)
+      // Categorize client based on priority
+      if (matchesName) {
+        // Priority 1: Client name match
+        nameMatches.push({
+          client,
+          score,
+          matchedKeywords,
+          matchedFields,
+        })
+      } else if (matchesWork) {
+        // Priority 2: Work purpose match
+        workMatches.push({
+          client,
+          score,
+          matchedKeywords,
+          matchedFields,
+        })
+      } else {
+        // Priority 3: Non-matching clients (preserve original order)
+        nonMatches.push(client)
+      }
+    })
 
-    // Sort: highest score first, then alphabetically by name
-    clientsWithScores.sort((a, b) => {
+    // Sort name matches: by score (highest first), then alphabetically
+    nameMatches.sort((a, b) => {
       if (b.score !== a.score) {
         return b.score - a.score
       }
       return a.client.name.localeCompare(b.client.name)
     })
 
-    return clientsWithScores.map((item) => item.client)
+    // Sort work matches: by score (highest first), then alphabetically
+    workMatches.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score
+      }
+      return a.client.name.localeCompare(b.client.name)
+    })
+
+    // Combine results in priority order: name matches → work matches → non-matches
+    return [
+      ...nameMatches.map((item) => item.client),
+      ...workMatches.map((item) => item.client),
+      ...nonMatches,
+    ]
   }, [debouncedSearchQuery, clients])
 
   /**
