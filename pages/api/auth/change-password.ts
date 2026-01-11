@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { UserService } from '@/services/user.service'
 import { getSessionFromCookie, clearSessionCookie } from './session'
@@ -68,7 +69,8 @@ export default async function handler(
     }
 
     // Verify current password is correct (uses secure bcrypt comparison)
-    const bcrypt = await import('bcryptjs')
+    
+
     const isCurrentPasswordValid = await bcrypt.compare(currentPassword, userWithPassword.password)
     if (!isCurrentPasswordValid) {
       return res.status(401).json({ 
