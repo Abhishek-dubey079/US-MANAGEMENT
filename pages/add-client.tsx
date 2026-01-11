@@ -1,4 +1,4 @@
-import type { NextPage } from 'next'
+import type { NextPage, GetServerSideProps } from 'next'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useState, useEffect } from 'react'
@@ -13,6 +13,7 @@ import type { CreateClientInput, CreateWorkInput, Client, Work } from '@/types'
 import { saveClientDraft, getClientDraft, clearClientDraft, saveWorksDraft, getWorksDraft, clearWorksDraft } from '@/utils/cache.utils'
 import { safeApiCall } from '@/utils/api.utils'
 import type { ApiError } from '@/utils/api.utils'
+import { requireAuth } from '@/utils/auth.server'
 
 const AddClient: NextPage = () => {
   const router = useRouter()
@@ -230,6 +231,11 @@ const AddClient: NextPage = () => {
       </div>
     </>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  // Require authentication - redirects to login if not authenticated
+  return requireAuth(context)
 }
 
 export default AddClient

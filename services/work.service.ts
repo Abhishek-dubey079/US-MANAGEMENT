@@ -89,16 +89,23 @@ export class WorkService {
   /**
    * Update a work entry
    */
-  static async update(id: string, data: UpdateWorkInput): Promise<Work> {
+  static async update(id: string, data: UpdateWorkInput & { status?: string; completionDate?: Date }): Promise<Work> {
+    const updateData: any = {}
+    
+    if (data.purpose !== undefined) updateData.purpose = data.purpose
+    if (data.fees !== undefined) updateData.fees = data.fees
+    if (data.completionDate !== undefined) updateData.completionDate = data.completionDate
+    if (data.status !== undefined) {
+      // Handle both WorkStatus enum and raw string status
+      updateData.status = typeof data.status === 'string' && data.status !== 'pending' && data.status !== 'completed' && data.status !== 'finalCompleted'
+        ? data.status // Already in database format (PENDING, COMPLETED, FINAL_COMPLETED)
+        : toPrismaStatus(data.status as any)
+    }
+    if (data.paymentReceived !== undefined) updateData.paymentReceived = data.paymentReceived
+
     const work = await prisma.work.update({
       where: { id },
-      data: {
-        purpose: data.purpose,
-        fees: data.fees,
-        completionDate: data.completionDate,
-        status: data.status ? toPrismaStatus(data.status) : undefined,
-        paymentReceived: data.paymentReceived,
-      },
+      data: updateData,
     })
     return mapWork(work)
   }

@@ -12,30 +12,49 @@ datasource db {
 
 model Client {
   id        String   @id @default(cuid())
+  userId    String?
   name      String
   pan       String?  @unique
   aadhaar   String?
   address   String?
   phone     String?
   createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   works     Work[]
 
   @@map("clients")
+  @@index([userId])
 }
 
 model Work {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
+  userId          String?
   clientId        String
   purpose         String
-  fees            Float    @default(0)
+  fees            Float     @default(0)
   completionDate  DateTime?
-  status          String   @default("PENDING")
-  paymentReceived Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  status          String    @default("PENDING")
+  paymentReceived Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  payments        Payment[]
 
   @@map("works")
+  @@index([userId])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  workId      String
+  amount      Float
+  paymentDate DateTime @default(now())
+  createdAt   DateTime @default(now())
+  work        Work     @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+  @@index([workId])
 }
 
 model History {
@@ -45,6 +64,8 @@ model History {
   clientPan           String?
   workPurpose         String
   fees                Float
+  totalPaid           Float    @default(0) // Total amount paid (sum of all payments)
+  paymentDetails      String?  // JSON string storing array of payments: [{amount, paymentDate}]
   completionDate      DateTime
   paymentReceivedDate DateTime // Date when payment was received (when work became finalCompleted)
   paymentReceived     Boolean  @default(true) // Always true for history records
@@ -56,6 +77,18 @@ model History {
   @@map("history")
   @@index([completionDate])
   @@unique([originalWorkId]) // Ensure only one history record per work (prevents duplicates)
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  username  String   @unique
+  password  String   // Hashed password
+  createdAt DateTime @default(now())
+  clients   Client[]
+  works     Work[]
+
+  @@map("users")
 }
 
 

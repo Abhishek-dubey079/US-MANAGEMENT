@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { WorkService } from '@/services/work.service'
 import { ensureDatabaseConnection } from '@/services/database'
+import { checkIsAdmin } from '@/utils/auth.api'
 
 export default async function handler(
   req: NextApiRequest,
@@ -12,8 +13,16 @@ export default async function handler(
     return res.status(400).json({ error: 'Invalid work ID' })
   }
 
+  // Check if user is admin
+  const isAdmin = await checkIsAdmin(req)
+
   if (req.method === 'DELETE') {
     try {
+      // Only admin can delete works
+      if (isAdmin !== true) {
+        return res.status(403).json({ error: 'Admin access required' })
+      }
+
       // Ensure database connection
       const isConnected = await ensureDatabaseConnection()
       if (!isConnected) {

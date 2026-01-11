@@ -13,6 +13,7 @@ import type { ApiError } from '@/utils/api.utils'
 import { formatDate, formatCurrency } from '@/utils/formatters'
 import CheckIcon from './icons/CheckIcon'
 import ConfirmDialog from './ConfirmDialog'
+import { logout } from '@/utils/auth.utils'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -245,6 +246,18 @@ export default function Dashboard() {
     router.push('/add-client')
   }
 
+  const handleLogout = async () => {
+    try {
+      await logout()
+      // Redirect to login page after logout
+      router.push('/login')
+    } catch (error) {
+      console.error('Error during logout:', error)
+      // Still redirect even if logout API call fails
+      router.push('/login')
+    }
+  }
+
   /**
    * Fetch history (Final Completed works) from API
    */
@@ -380,12 +393,46 @@ export default function Dashboard() {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Finance Management</h1>
             <p className="mt-1 text-sm text-gray-600 hidden sm:block">Manage clients and their financial works</p>
           </div>
-          <button
-            onClick={handleAddNew}
-            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            ADD NEW
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/settings')}
+              className="rounded-lg p-2.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              title="Settings"
+            >
+              <svg
+                className="h-6 w-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={handleAddNew}
+              className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              ADD NEW
+            </button>
+            <button
+              onClick={handleLogout}
+              className="rounded-lg bg-gray-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              title="Logout"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         {/* Search Bar */}

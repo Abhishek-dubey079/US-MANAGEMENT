@@ -40,6 +40,29 @@ export interface Work {
   paymentReceived: boolean
   createdAt: Date
   updatedAt: Date
+  payments?: Payment[] // Optional for backward compatibility
+}
+
+export interface Payment {
+  id: string
+  workId: string
+  amount: number
+  paymentDate: Date
+  createdAt: Date
+}
+
+export interface CreatePaymentInput {
+  workId: string
+  amount: number
+  paymentDate?: Date
+}
+
+export interface PaymentSummary {
+  workId: string
+  totalFees: number
+  totalPaid: number
+  remainingAmount: number
+  payments: Payment[]
 }
 
 export interface CreateWorkInput {
@@ -65,6 +88,24 @@ export interface WorkWithClient extends Work {
 
 export interface ClientWithWorks extends Client {
   works: Work[]
+}
+
+export interface User {
+  id: string
+  name: string
+  username: string
+  createdAt: Date
+}
+
+export interface CreateUserInput {
+  name: string
+  username: string
+  password: string
+}
+
+export interface LoginInput {
+  username: string
+  password: string
 }
 
 

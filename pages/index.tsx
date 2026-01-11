@@ -1,8 +1,18 @@
-import type { NextPage } from 'next'
+import type { NextPage, GetServerSideProps } from 'next'
 import Head from 'next/head'
 import Dashboard from '@/components/Dashboard'
+import { requireAuth } from '@/utils/auth.server'
 
-const Home: NextPage = () => {
+interface HomeProps {
+  user: {
+    id: string
+    name: string
+    username: string
+    createdAt: string
+  }
+}
+
+const Home: NextPage<HomeProps> = ({ user }) => {
   return (
     <>
       <Head>
@@ -14,6 +24,11 @@ const Home: NextPage = () => {
       <Dashboard />
     </>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  // Require authentication - redirects to login if not authenticated
+  return requireAuth(context)
 }
 
 export default Home

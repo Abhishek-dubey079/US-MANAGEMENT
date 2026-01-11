@@ -1,6 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { WorkService } from '@/services/work.service'
 import { HistoryService } from '@/services/history.service'
+import { PaymentService } from '@/services/payment.service'
+import { checkIsAdmin } from '@/utils/auth.api'
 
 export default async function handler(
   req: NextApiRequest,
@@ -14,6 +16,12 @@ export default async function handler(
   }
 
   try {
+    // Only admin can update work status
+    const isAdmin = await checkIsAdmin(req)
+    if (isAdmin !== true) {
+      return res.status(403).json({ error: 'Admin access required' })
+    }
+
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Invalid work ID' })
     }
@@ -24,15 +32,60 @@ export default async function handler(
       return res.status(400).json({ error: 'Invalid status. Must be: pending, completed, or finalCompleted' })
     }
 
-    // Update status and paymentReceived based on new meaning:
-    // - completed = work completed but payment not received (paymentReceived: false)
-    // - finalCompleted = work completed and payment received (paymentReceived: true)
-    const paymentReceived = status === 'finalCompleted'
+    // Get current work to verify it exists
+    const currentWork = await WorkService.findById(id)
+    if (!currentWork) {
+      return res.status(404).json({ error: 'Work not found' })
+    }
+
+    // Payment-based status rules:
+    // - completed = work completed but payment pending (Payment Pending status)
+    // - finalCompleted = work completed and full payment received (ONLY allowed when remainingAmount === 0)
+    //   remainingAmount is calculated from actual payments, not from paymentReceived flag
     
-    const updatedWork = await WorkService.update(id, { 
-      status,
-      paymentReceived 
-    })
+    // Prepare update data (removed paymentReceived dependency - now based on payment calculations)
+    const updateData: { status?: string; completionDate?: Date } = {}
+
+    // When marking work as 'completed', set completionDate if not already set
+    if (status === 'completed' && !currentWork.completionDate) {
+      // Set completion date when work is first marked as completed
+      updateData.completionDate = new Date()
+    }
+
+    // Validate final completion - ONLY allow when remainingAmount === 0
+    // remainingAmount is recalculated from actual payments
+    if (status === 'finalCompleted') {
+      // Recalculate remainingAmount from actual payments
+      const paymentSummary = await PaymentService.getPaymentSummary(id)
+      
+      if (!paymentSummary) {
+        return res.status(500).json({ 
+          error: 'Failed to retrieve payment information',
+          retryable: true
+        })
+      }
+
+      // Final completion ONLY allowed if remainingAmount === 0 (all payments received)
+      if (paymentSummary.remainingAmount !== 0) {
+        return res.status(400).json({ 
+          error: `Cannot mark work as Final Completed. Payment pending: ${paymentSummary.remainingAmount.toFixed(2)} remaining out of ${paymentSummary.totalFees.toFixed(2)} total fees.`,
+          remainingAmount: paymentSummary.remainingAmount,
+          totalFees: paymentSummary.totalFees,
+          totalPaid: paymentSummary.totalPaid,
+          retryable: false
+        })
+      }
+
+      // Ensure completionDate is set when finalizing
+      if (!currentWork.completionDate) {
+        updateData.completionDate = new Date()
+      }
+    }
+
+    // Set status (will be converted to Prisma format in WorkService.update)
+    updateData.status = status
+    
+    const updatedWork = await WorkService.update(id, updateData as any)
 
     // Create history record when work becomes finalCompleted
     // History stores snapshot data independently from Work/Client
@@ -47,15 +100,28 @@ export default async function handler(
         
         if (workWithClient) {
           try {
-            // Create history record with snapshot data
-            // paymentReceivedDate is set to current date (when work becomes finalCompleted)
+            // Fetch payment summary to include payment details in history snapshot
+            const paymentSummary = await PaymentService.getPaymentSummary(id)
+            
+            // Prepare payment details array from payments
+            const paymentDetails = paymentSummary?.payments.map((payment) => ({
+              amount: payment.amount,
+              paymentDate: payment.paymentDate instanceof Date 
+                ? payment.paymentDate 
+                : new Date(payment.paymentDate),
+            })) || []
+            
+            // Create history record with snapshot data including payment details
+            // paymentReceivedDate is set to current date (when work became finalCompleted)
             await HistoryService.create({
               clientName: workWithClient.client.name,
               clientPan: workWithClient.client.pan,
               workPurpose: workWithClient.purpose,
               fees: workWithClient.fees,
+              totalPaid: paymentSummary?.totalPaid || workWithClient.fees,
+              paymentDetails: paymentDetails.length > 0 ? paymentDetails : undefined,
               completionDate: workWithClient.completionDate || new Date(),
-              paymentReceivedDate: new Date(), // Date when payment was received (now)
+              paymentReceivedDate: new Date(), // Date when payment was received (when work became finalCompleted)
               originalWorkId: id,
               originalClientId: workWithClient.client.id,
             })

@@ -1,5 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { ClientService } from '@/services/client.service'
+import { checkIsAdmin } from '@/utils/auth.api'
+import { getSessionFromCookie } from '@/pages/api/auth/session'
+import { UserService } from '@/services/user.service'
 
 export default async function handler(
   req: NextApiRequest,
@@ -7,13 +10,34 @@ export default async function handler(
 ) {
   if (req.method === 'GET') {
     try {
+      // Get logged-in user from session
+      const userId = getSessionFromCookie(req)
+      
+      if (!userId) {
+        return res.status(401).json({ 
+          error: 'Authentication required. Please log in.',
+          retryable: false
+        })
+      }
+
+      // Verify user exists
+      const user = await UserService.findById(userId)
+      if (!user) {
+        return res.status(401).json({ 
+          error: 'Invalid session. Please log in again.',
+          retryable: false
+        })
+      }
+
+      // Check if user is admin
+      const isAdmin = await checkIsAdmin(req)
+
       // Ensure database connection
-      const { ensureDatabaseConnection } = await import('@/services/database')
+      const { ensureDatabaseConnection, default: prisma } = await import('@/services/database')
       const isConnected = await ensureDatabaseConnection()
       
       if (!isConnected) {
         // Try to get more details about the error
-        const { prisma } = await import('@/services/database')
         try {
           await prisma.$queryRaw`SELECT 1`
         } catch (dbError: unknown) {
@@ -31,14 +55,34 @@ export default async function handler(
         })
       }
 
-      // Fetch clients with their works for keyword search
-      const clients = await ClientService.findAll()
+      // Fetch clients:
+      // - Admin: all clients
+      // - Non-admin: only clients where userId = logged-in user
+      const { mapClient, mapWork } = await import('@/utils/mappers')
+      const clientsPrisma = await prisma.client.findMany({
+        where: isAdmin === true 
+          ? undefined  // Admin sees all clients
+          : { userId }, // Non-admin sees only their clients
+        orderBy: {
+          createdAt: 'desc',
+        },
+      })
+
+      const clients = clientsPrisma.map(mapClient)
       
-      // Fetch works for each client
-      const { WorkService } = await import('@/services/work.service')
+      // Fetch works for each client (also filtered by userId for non-admin users)
       const clientsWithWorks = await Promise.all(
         clients.map(async (client) => {
-          const works = await WorkService.findByClientId(client.id)
+          const worksPrisma = await prisma.work.findMany({
+            where: {
+              clientId: client.id,
+              ...(isAdmin !== true ? { userId } : {}), // Non-admin: only their works
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+          })
+          const works = worksPrisma.map(mapWork)
           return { ...client, works }
         })
       )

@@ -16,12 +16,19 @@ function isPrismaUniqueConstraintError(error: unknown): error is { code: string;
   )
 }
 
+export interface PaymentDetail {
+  amount: number
+  paymentDate: Date | string
+}
+
 export interface HistoryRecord {
   id: string
   clientName: string
   clientPan: string | null
   workPurpose: string
   fees: number
+  totalPaid: number
+  paymentDetails: PaymentDetail[] | null
   completionDate: Date
   paymentReceivedDate: Date
   paymentReceived: boolean
@@ -35,6 +42,8 @@ export interface CreateHistoryInput {
   clientPan: string | null
   workPurpose: string
   fees: number
+  totalPaid: number
+  paymentDetails?: PaymentDetail[]
   completionDate: Date
   paymentReceivedDate: Date
   originalWorkId?: string | null
@@ -61,12 +70,22 @@ export class HistoryService {
     }
 
     try {
+      // Store payment details as JSON string
+      const paymentDetailsJson = data.paymentDetails && data.paymentDetails.length > 0
+        ? JSON.stringify(data.paymentDetails.map((p) => ({
+            amount: p.amount,
+            paymentDate: typeof p.paymentDate === 'string' ? p.paymentDate : p.paymentDate.toISOString(),
+          })))
+        : null
+
       const history = await prisma.history.create({
         data: {
           clientName: data.clientName,
           clientPan: data.clientPan,
           workPurpose: data.workPurpose,
           fees: data.fees,
+          totalPaid: data.totalPaid ?? data.fees, // Default to fees if totalPaid not provided (backward compatibility)
+          paymentDetails: paymentDetailsJson,
           completionDate: data.completionDate,
           paymentReceivedDate: data.paymentReceivedDate,
           paymentReceived: true, // History records always have payment received
@@ -75,12 +94,25 @@ export class HistoryService {
         },
       })
 
+      // Parse payment details from JSON string
+      let paymentDetails: PaymentDetail[] | null = null
+      if (history.paymentDetails) {
+        try {
+          const parsed = JSON.parse(history.paymentDetails)
+          paymentDetails = Array.isArray(parsed) ? parsed : null
+        } catch {
+          paymentDetails = null
+        }
+      }
+
       return {
         id: history.id,
         clientName: history.clientName,
         clientPan: history.clientPan,
         workPurpose: history.workPurpose,
         fees: history.fees,
+        totalPaid: history.totalPaid,
+        paymentDetails,
         completionDate: history.completionDate,
         paymentReceivedDate: history.paymentReceivedDate,
         paymentReceived: history.paymentReceived,
@@ -108,19 +140,34 @@ export class HistoryService {
       },
     })
 
-    return records.map((record) => ({
-      id: record.id,
-      clientName: record.clientName,
-      clientPan: record.clientPan,
-      workPurpose: record.workPurpose,
-      fees: record.fees,
-      completionDate: record.completionDate,
-      paymentReceivedDate: record.paymentReceivedDate,
-      paymentReceived: record.paymentReceived,
-      originalWorkId: record.originalWorkId,
-      originalClientId: record.originalClientId,
-      createdAt: record.createdAt,
-    }))
+    return records.map((record) => {
+      // Parse payment details from JSON string
+      let paymentDetails: PaymentDetail[] | null = null
+      if (record.paymentDetails) {
+        try {
+          const parsed = JSON.parse(record.paymentDetails)
+          paymentDetails = Array.isArray(parsed) ? parsed : null
+        } catch {
+          paymentDetails = null
+        }
+      }
+
+      return {
+        id: record.id,
+        clientName: record.clientName,
+        clientPan: record.clientPan,
+        workPurpose: record.workPurpose,
+        fees: record.fees,
+        totalPaid: record.totalPaid || 0,
+        paymentDetails,
+        completionDate: record.completionDate,
+        paymentReceivedDate: record.paymentReceivedDate,
+        paymentReceived: record.paymentReceived,
+        originalWorkId: record.originalWorkId,
+        originalClientId: record.originalClientId,
+        createdAt: record.createdAt,
+      }
+    })
   }
 
   /**
@@ -160,12 +207,25 @@ export class HistoryService {
       where: { id },
     })
 
+    // Parse payment details from JSON string
+    let paymentDetails: PaymentDetail[] | null = null
+    if (record.paymentDetails) {
+      try {
+        const parsed = JSON.parse(record.paymentDetails)
+        paymentDetails = Array.isArray(parsed) ? parsed : null
+      } catch {
+        paymentDetails = null
+      }
+    }
+
     return {
       id: record.id,
       clientName: record.clientName,
       clientPan: record.clientPan,
       workPurpose: record.workPurpose,
       fees: record.fees,
+      totalPaid: record.totalPaid || 0,
+      paymentDetails,
       completionDate: record.completionDate,
       paymentReceivedDate: record.paymentReceivedDate,
       paymentReceived: record.paymentReceived,

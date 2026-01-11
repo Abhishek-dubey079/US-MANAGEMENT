@@ -2,7 +2,7 @@ import type { NextPage, GetServerSideProps } from 'next'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useState, useEffect } from 'react'
-import type { ClientWithWorks, Work, CreateWorkInput, UpdateClientInput } from '@/types'
+import type { ClientWithWorks, Work, CreateWorkInput, UpdateClientInput, PaymentSummary } from '@/types'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import WorkModal from '@/components/WorkModal'
 import CheckIcon from '@/components/icons/CheckIcon'
@@ -14,6 +14,7 @@ import { safeApiCall } from '@/utils/api.utils'
 import type { ApiError } from '@/utils/api.utils'
 import { validateRequired, validatePAN, validateAadhaar, validatePhone } from '@/utils/validation'
 import { clearCache, CACHE_KEYS } from '@/utils/cache.utils'
+import { requireAuth } from '@/utils/auth.server'
 
 // Serialized version for getServerSideProps (dates as ISO strings)
 interface SerializedClientWithWorks {
@@ -93,6 +94,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     workId: null,
   })
   const [isDeletingWork, setIsDeletingWork] = useState(false)
+  const [paymentSummaries, setPaymentSummaries] = useState<Record<string, PaymentSummary>>({})
+  const [paymentInputs, setPaymentInputs] = useState<Record<string, string>>({})
+  const [paymentErrors, setPaymentErrors] = useState<Record<string, string>>({})
+  const [isAddingPayment, setIsAddingPayment] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!initialClient && router.query.id) {
@@ -100,6 +105,17 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.query.id, initialClient])
+
+  // Fetch payment summaries for completed works
+  useEffect(() => {
+    if (client) {
+      const completedWorks = client.works.filter((work) => work.status === 'completed')
+      completedWorks.forEach((work) => {
+        fetchPaymentSummary(work.id)
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client])
 
   const fetchClient = async (id: string) => {
     try {
@@ -124,8 +140,8 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
 
   /**
    * Handle status checkbox click with lifecycle enforcement
-   * - Pending → Completed (work done, payment not received) (with confirmation)
-   * - Completed → Final Completed (work done, payment received) (with confirmation)
+   * - Pending → Completed (work done, payment pending) (with confirmation)
+   * - Completed → Final Completed (only allowed if remainingAmount === 0) (with confirmation)
    * - Final Completed → Locked (no changes allowed)
    */
   const handleStatusClick = (workId: string, currentStatus: string) => {
@@ -135,14 +151,27 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     }
 
     if (currentStatus === 'pending') {
-      // Move from pending to completed (work done, payment not received)
+      // Move from pending to completed (work done, payment pending)
       setConfirmDialog({
         isOpen: true,
         workId,
         newStatus: 'completed',
       })
     } else if (currentStatus === 'completed') {
-      // Move from completed to final completed (work done, payment received)
+      // Check if remainingAmount === 0 before allowing final completion
+      const summary = paymentSummaries[workId]
+      const remainingAmount = summary?.remainingAmount ?? 0
+      
+      // Final completion ONLY allowed if remainingAmount === 0 (all payments received)
+      if (remainingAmount !== 0) {
+        setPaymentErrors((prev) => ({
+          ...prev,
+          [workId]: `Cannot mark as Final Completed. Payment pending: ${formatCurrency(remainingAmount)} remaining.`,
+        }))
+        return
+      }
+      
+      // Move from completed to final completed (work done, all payments received)
       setConfirmDialog({
         isOpen: true,
         workId,
@@ -167,14 +196,14 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     setConfirmDialog({ isOpen: false, workId: null, newStatus: null })
 
     // Optimistic update: show changes immediately
-    // Update status and paymentReceived based on new meaning:
-    // - completed = work completed but payment not received (paymentReceived: false)
-    // - finalCompleted = work completed and payment received (paymentReceived: true)
+    // Update status based on payment-based logic:
+    // - completed = work completed but payment pending (remainingAmount > 0)
+    // - finalCompleted = work completed and all payments received (remainingAmount === 0)
+    // Note: paymentReceived flag is no longer used for logic - only for display compatibility
     const originalClient = client
-    const paymentReceived = newStatus === 'finalCompleted'
     const updatedWorks = client.works.map((work) =>
       work.id === workId 
-        ? { ...work, status: newStatus, paymentReceived } 
+        ? { ...work, status: newStatus, paymentReceived: newStatus === 'finalCompleted' } 
         : work
     )
     setClient({ ...client, works: updatedWorks })
@@ -493,6 +522,165 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
   }
 
   /**
+   * Fetch payment summary for a work
+   */
+  const fetchPaymentSummary = async (workId: string) => {
+    try {
+      const response = await fetch(`/api/payments/${workId}`)
+      if (response.ok) {
+        const summary = await response.json()
+        setPaymentSummaries((prev) => ({ ...prev, [workId]: summary }))
+      }
+    } catch (error) {
+      console.error('Error fetching payment summary:', error)
+    }
+  }
+
+  /**
+   * Handle payment input change
+   */
+  const handlePaymentInputChange = (workId: string, value: string) => {
+    setPaymentInputs((prev) => ({ ...prev, [workId]: value }))
+    // Clear error when user types
+    if (paymentErrors[workId]) {
+      setPaymentErrors((prev) => ({ ...prev, [workId]: '' }))
+    }
+  }
+
+  /**
+   * Handle adding payment
+   * - Validates payment amount
+   * - Calls API to create payment
+   * - Refreshes payment summary on success
+   * - Shows meaningful error messages on failure
+   */
+  const handleAddPayment = async (workId: string) => {
+    const amountStr = paymentInputs[workId]?.trim()
+    
+    // Client-side validation
+    if (!amountStr) {
+      setPaymentErrors((prev) => ({ ...prev, [workId]: 'Payment amount is required' }))
+      return
+    }
+
+    const amount = parseFloat(amountStr)
+    if (isNaN(amount) || amount <= 0) {
+      setPaymentErrors((prev) => ({ ...prev, [workId]: 'Payment amount must be a positive number' }))
+      return
+    }
+
+    // Check against current remaining balance (if available)
+    const summary = paymentSummaries[workId]
+    if (summary && amount > summary.remainingAmount) {
+      setPaymentErrors((prev) => ({ 
+        ...prev, 
+        [workId]: `Payment amount (${formatCurrency(amount)}) exceeds remaining amount (${formatCurrency(summary.remainingAmount)})` 
+      }))
+      return
+    }
+
+    // Set loading state and clear previous errors
+    setIsAddingPayment((prev) => ({ ...prev, [workId]: true }))
+    setPaymentErrors((prev) => ({ ...prev, [workId]: '' }))
+
+    try {
+      // Call API to create payment
+      // Ensure request body includes workId and amount
+      const response = await safeApiCall<{
+        payment: {
+          id: string
+          workId: string
+          amount: number
+          paymentDate: string
+          createdAt: string
+        }
+        summary: PaymentSummary
+        canFinalize: boolean
+        message: string
+      }>('/api/payments/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workId: workId.trim(),
+          amount: amount,
+        }),
+      }, 3)
+
+      // On success: Update payment summary with API response
+      // The API returns recalculated totalPaid and remainingAmount
+      setPaymentSummaries((prev) => ({ ...prev, [workId]: response.summary }))
+      
+      // Clear payment input
+      setPaymentInputs((prev) => ({ ...prev, [workId]: '' }))
+
+      // Refresh payment summary from API to ensure data consistency
+      // This ensures we have the latest payment data including all payments
+      try {
+        await fetchPaymentSummary(workId)
+      } catch (fetchError) {
+        // Non-critical error - we already have the summary from the response
+        console.warn('Failed to refresh payment summary after adding payment:', fetchError)
+      }
+
+      // If payment is complete (canFinalize = true), refresh client data
+      // This updates the work status if it can now be marked as finalCompleted
+      if (response.canFinalize && router.query.id) {
+        try {
+          await fetchClient(router.query.id as string)
+        } catch (fetchError) {
+          // Non-critical error - payment was still created successfully
+          console.warn('Failed to refresh client data after payment completion:', fetchError)
+        }
+      }
+    } catch (error) {
+      console.error('Error adding payment:', error)
+      
+      // Extract error message from API error
+      const apiError = error as ApiError
+      let errorMessage = 'Failed to add payment. Please try again.'
+      
+      // Handle different error scenarios
+      if (apiError.message) {
+        errorMessage = apiError.message
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      }
+
+      // Handle specific error cases with user-friendly messages
+      if (errorMessage.includes('Work not found') || errorMessage.includes('Work with ID')) {
+        errorMessage = 'The work was not found. Please refresh the page and try again.'
+      } else if (errorMessage.includes('exceeds remaining') || errorMessage.includes('exceeds remaining balance')) {
+        errorMessage = errorMessage // Use API's specific error message about balance
+      } else if (errorMessage.includes('must be greater than zero')) {
+        errorMessage = 'Payment amount must be greater than zero.'
+      } else if (errorMessage.includes('required')) {
+        errorMessage = errorMessage // Use API's validation message
+      } else if (errorMessage.includes('Network') || errorMessage.includes('connection')) {
+        errorMessage = 'Network error. Please check your connection and try again.'
+      } else if (apiError.status === 403) {
+        errorMessage = 'You do not have permission to add payments. Admin access required.'
+      } else if (apiError.status === 404) {
+        errorMessage = 'Work not found. Please refresh the page and try again.'
+      } else if (apiError.status === 400) {
+        errorMessage = errorMessage || 'Invalid payment data. Please check the amount and try again.'
+      } else if (apiError.status === 500 || apiError.status === 503) {
+        errorMessage = 'Server error. Please try again later.'
+      }
+
+      // Show error message to user
+      setPaymentErrors((prev) => ({ 
+        ...prev, 
+        [workId]: errorMessage
+      }))
+    } finally {
+      // Always reset loading state
+      setIsAddingPayment((prev) => ({ ...prev, [workId]: false }))
+    }
+  }
+
+  /**
    * Handle adding new work to the client
    * New work always starts with status 'pending' and paymentReceived: false
    */
@@ -597,13 +785,58 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
                   </span>
                 </div>
                 {work.status === 'completed' && (
-                  <div className="sm:col-span-2 flex items-center gap-2">
-                    <span className="font-medium text-gray-700">Payment Status:</span>{' '}
-                    <span className="text-red-600 font-semibold flex items-center gap-1">
-                      <CrossIcon size={16} className="text-red-600" />
-                      Fees not received
-                    </span>
-                  </div>
+                  <>
+                    <div className="sm:col-span-2 flex items-center gap-2">
+                      <span className="font-medium text-gray-700">Payment Status:</span>{' '}
+                      {(() => {
+                        const remainingAmount = paymentSummaries[work.id]?.remainingAmount ?? work.fees
+                        const isFullyPaid = remainingAmount === 0
+                        
+                        return isFullyPaid ? (
+                          <span className="text-green-600 font-semibold flex items-center gap-1">
+                            <CheckIcon size={16} className="text-green-600" />
+                            Fully Paid
+                          </span>
+                        ) : (
+                          <span className="text-red-600 font-semibold flex items-center gap-1">
+                            <CrossIcon size={16} className="text-red-600" />
+                            Payment Pending
+                          </span>
+                        )
+                      })()}
+                    </div>
+                    {/* Payment Summary - Always show for completed works */}
+                    <div className="sm:col-span-2 grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div>
+                        <span className="block text-xs text-gray-600 mb-1">Total Fees</span>
+                        <span className="text-sm font-semibold text-gray-900">
+                          {paymentSummaries[work.id] 
+                            ? formatCurrency(paymentSummaries[work.id].totalFees) 
+                            : formatCurrency(work.fees)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-xs text-gray-600 mb-1">Total Paid</span>
+                        <span className="text-sm font-semibold text-green-600">
+                          {paymentSummaries[work.id] 
+                            ? formatCurrency(paymentSummaries[work.id].totalPaid) 
+                            : formatCurrency(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-xs text-gray-600 mb-1">Remaining Balance</span>
+                        <span className={`text-sm font-semibold ${
+                          (paymentSummaries[work.id]?.remainingAmount ?? work.fees) === 0
+                            ? 'text-green-600'
+                            : 'text-red-600'
+                        }`}>
+                          {paymentSummaries[work.id] 
+                            ? formatCurrency(paymentSummaries[work.id].remainingAmount) 
+                            : formatCurrency(work.fees)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
                 )}
                 {work.status === 'finalCompleted' && (
                   <div className="sm:col-span-2 flex items-center gap-2">
@@ -633,15 +866,112 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
                 </label>
               )}
               {work.status === 'completed' && (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={false}
-                    onChange={() => handleStatusClick(work.id, work.status)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                  <span className="text-sm text-gray-700">Payment Received</span>
-                </label>
+                <div className="space-y-3">
+                  {/* Payment Input Section */}
+                  <div className="space-y-2">
+                    <label htmlFor={`payment-${work.id}`} className="block text-sm font-medium text-gray-700">
+                      Enter payment amount
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        id={`payment-${work.id}`}
+                        value={paymentInputs[work.id] || ''}
+                        onChange={(e) => handlePaymentInputChange(work.id, e.target.value)}
+                        placeholder="0.00"
+                        min="0"
+                        step="0.01"
+                        disabled={isAddingPayment[work.id]}
+                        className={`flex-1 rounded-lg border ${
+                          paymentErrors[work.id]
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        } px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed`}
+                      />
+                      <button
+                        onClick={() => handleAddPayment(work.id)}
+                        disabled={isAddingPayment[work.id] || !paymentInputs[work.id]?.trim()}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isAddingPayment[work.id] ? 'Adding...' : 'Add Payment'}
+                      </button>
+                    </div>
+                    {paymentErrors[work.id] && (
+                      <p className="text-sm text-red-600">{paymentErrors[work.id]}</p>
+                    )}
+                  </div>
+                  
+                  {/* Payment History */}
+                  {paymentSummaries[work.id] && paymentSummaries[work.id].payments && paymentSummaries[work.id].payments.length > 0 && (
+                    <div className="space-y-2 border-t border-gray-200 pt-3">
+                      <h4 className="text-sm font-semibold text-gray-700">Payment History</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                        {paymentSummaries[work.id].payments.map((payment) => {
+                          // Handle paymentDate as either Date object or ISO string
+                          const paymentDate = payment.paymentDate instanceof Date 
+                            ? payment.paymentDate 
+                            : new Date(payment.paymentDate)
+                          
+                          return (
+                            <div
+                              key={payment.id}
+                              className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                            >
+                              <div className="flex items-center gap-3 flex-1">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                                  <CheckIcon size={14} className="text-green-600" />
+                                </div>
+                                <div className="flex-1">
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {formatCurrency(payment.amount)}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {formatDate(paymentDate)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Final Completion - Only show when fully paid */}
+                  {(() => {
+                    const remainingAmount = paymentSummaries[work.id]?.remainingAmount ?? work.fees
+                    const isFullyPaid = remainingAmount === 0
+                    
+                    if (!isFullyPaid) {
+                      // Hide final completion when balance remains
+                      return (
+                        <div className="text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <span className="font-medium text-yellow-800">
+                            Complete payment to mark as Final Completed
+                          </span>
+                          <span className="block mt-1 text-xs text-yellow-700">
+                            Remaining balance: {formatCurrency(remainingAmount)}
+                          </span>
+                        </div>
+                      )
+                    }
+                    
+                    // Show final completion checkbox only when fully paid
+                    return (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={() => handleStatusClick(work.id, work.status)}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-700">
+                          Mark as Final Completed
+                        </span>
+                      </label>
+                    )
+                  })()}
+                </div>
               )}
               {work.status === 'finalCompleted' && (
                 <label className="flex items-center gap-2">
@@ -1060,6 +1390,18 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
+  // First, check authentication
+  const authResult = await requireAuth(context)
+  
+  // If not authenticated, requireAuth returns a redirect
+  if ('redirect' in authResult) {
+    return authResult
+  }
+
+  // User is authenticated, extract user from props
+  const { user } = authResult.props
+
+  // Now fetch client data
   const { id } = context.params!
 
   try {
@@ -1084,6 +1426,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
       
       return {
         props: {
+          user,
           initialClient: serializedClient,
         },
       }
@@ -1094,6 +1437,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
 
   return {
     props: {
+      user,
       initialClient: null,
     },
   }

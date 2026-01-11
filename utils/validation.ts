@@ -84,4 +84,64 @@ export function validateRequired(value: string, fieldName: string): ValidationRe
   return { isValid: true }
 }
 
+/**
+ * Validate password strength
+ * Requirements:
+ * - At least 8 characters long
+ * - Contains at least one uppercase letter
+ * - Contains at least one lowercase letter
+ * - Contains at least one number
+ * - Contains at least one special character
+ */
+export function validatePasswordStrength(password: string): ValidationResult {
+  if (!password || password.trim() === '') {
+    return {
+      isValid: false,
+      error: 'Password is required',
+    }
+  }
+
+  if (password.length < 8) {
+    return {
+      isValid: false,
+      error: 'Password must be at least 8 characters long',
+    }
+  }
+
+  // Check for at least one uppercase letter
+  if (!/[A-Z]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one uppercase letter',
+    }
+  }
+
+  // Check for at least one lowercase letter
+  if (!/[a-z]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one lowercase letter',
+    }
+  }
+
+  // Check for at least one number
+  if (!/[0-9]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one number',
+    }
+  }
+
+  // Check for at least one special character
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)',
+    }
+  }
+
+  return { isValid: true }
+}
+
+
 

@@ -2,6 +2,9 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { ClientService } from '@/services/client.service'
 import { ensureDatabaseConnection } from '@/services/database'
 import type { UpdateClientInput } from '@/types'
+import { checkIsAdmin } from '@/utils/auth.api'
+import { getSessionFromCookie } from '@/pages/api/auth/session'
+import { UserService } from '@/services/user.service'
 
 export default async function handler(
   req: NextApiRequest,
@@ -13,12 +16,61 @@ export default async function handler(
     return res.status(400).json({ error: 'Invalid client ID' })
   }
 
+  // Get logged-in user from session
+  const userId = getSessionFromCookie(req)
+  
+  if (!userId) {
+    return res.status(401).json({ 
+      error: 'Authentication required. Please log in.',
+      retryable: false
+    })
+  }
+
+  // Verify user exists
+  const user = await UserService.findById(userId)
+  if (!user) {
+    return res.status(401).json({ 
+      error: 'Invalid session. Please log in again.',
+      retryable: false
+    })
+  }
+
+  // Check if user is admin
+  const isAdmin = await checkIsAdmin(req)
+
   if (req.method === 'GET') {
     try {
-      const client = await ClientService.findByIdWithWorks(id)
+      // Fetch client (admin: any client, non-admin: only if belongs to user)
+      const { default: prisma } = await import('@/services/database')
+      const { mapClient, mapWork } = await import('@/utils/mappers')
+      
+      const clientPrisma = await prisma.client.findUnique({
+        where: { id },
+        include: {
+          works: {
+            where: isAdmin === true 
+              ? undefined  // Admin sees all works for this client
+              : { userId }, // Non-admin sees only their works for this client
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
+        },
+      })
 
-      if (!client) {
+      if (!clientPrisma) {
         return res.status(404).json({ error: 'Client not found' })
+      }
+
+      // Non-admin users can only access their own clients
+      if (isAdmin !== true && clientPrisma.userId !== userId) {
+        return res.status(404).json({ error: 'Client not found' })
+      }
+
+      // Map Prisma models to TypeScript types
+      const client = {
+        ...mapClient(clientPrisma),
+        works: clientPrisma.works.map(mapWork),
       }
 
       res.status(200).json(client)
@@ -31,6 +83,11 @@ export default async function handler(
     }
   } else if (req.method === 'PATCH') {
     try {
+      // Only admin can update clients
+      if (isAdmin !== true) {
+        return res.status(403).json({ error: 'Admin access required' })
+      }
+
       // Ensure database connection
       const isConnected = await ensureDatabaseConnection()
       if (!isConnected) {
@@ -78,6 +135,11 @@ export default async function handler(
     }
   } else if (req.method === 'DELETE') {
     try {
+      // Only admin can delete clients
+      if (isAdmin !== true) {
+        return res.status(403).json({ error: 'Admin access required' })
+      }
+
       // Ensure database connection
       const isConnected = await ensureDatabaseConnection()
       if (!isConnected) {

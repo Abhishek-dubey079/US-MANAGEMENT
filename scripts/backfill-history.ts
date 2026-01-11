@@ -8,6 +8,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { HistoryService } from '../services/history.service'
+import { PaymentService } from '../services/payment.service'
 
 const prisma = new PrismaClient()
 
@@ -41,13 +42,36 @@ async function backfillHistory() {
         continue
       }
 
-      // Create history record with snapshot data
+      // Fetch payment summary to include payment details in history snapshot
+      let paymentSummary
+      let paymentDetails: Array<{ amount: number; paymentDate: Date }> = []
+      let totalPaid = work.fees // Default to full fees for backward compatibility
+      
+      try {
+        paymentSummary = await PaymentService.getPaymentSummary(work.id)
+        if (paymentSummary) {
+          totalPaid = paymentSummary.totalPaid
+          paymentDetails = paymentSummary.payments.map((payment) => ({
+            amount: payment.amount,
+            paymentDate: payment.paymentDate instanceof Date 
+              ? payment.paymentDate 
+              : new Date(payment.paymentDate),
+          }))
+        }
+      } catch (error) {
+        // If payment summary doesn't exist (old data), use default values
+        console.log(`No payment data found for work ${work.id}, using default values`)
+      }
+
+      // Create history record with snapshot data including payment details
       // Use completionDate as paymentReceivedDate if available, otherwise use current date
       await HistoryService.create({
         clientName: work.client.name,
         clientPan: work.client.pan,
         workPurpose: work.purpose,
         fees: work.fees,
+        totalPaid,
+        paymentDetails: paymentDetails.length > 0 ? paymentDetails : undefined,
         completionDate: work.completionDate!,
         paymentReceivedDate: work.completionDate || new Date(), // Use completion date or current date
         originalWorkId: work.id,

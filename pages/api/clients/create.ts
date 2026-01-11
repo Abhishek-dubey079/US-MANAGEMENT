@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import type { CreateClientInput, CreateWorkInput } from '@/types'
+import { getSessionFromCookie } from '@/pages/api/auth/session'
+import { UserService } from '@/services/user.service'
 
 interface CreateClientWithWorksRequest {
   client: CreateClientInput
@@ -16,6 +18,25 @@ export default async function handler(
   }
 
   try {
+    // Get logged-in user from session
+    const userId = getSessionFromCookie(req)
+    
+    if (!userId) {
+      return res.status(401).json({ 
+        error: 'Authentication required. Please log in to create clients.',
+        retryable: false
+      })
+    }
+
+    // Verify user exists
+    const user = await UserService.findById(userId)
+    if (!user) {
+      return res.status(401).json({ 
+        error: 'Invalid session. Please log in again.',
+        retryable: false
+      })
+    }
+
     // Verify database connection before processing
     const { ensureDatabaseConnection } = await import('@/services/database')
     const isConnected = await ensureDatabaseConnection()
@@ -42,9 +63,10 @@ export default async function handler(
     const { toPrismaStatus } = await import('@/utils/status.utils')
     
     const result = await prisma.$transaction(async (tx) => {
-      // Step 1: Create client record
+      // Step 1: Create client record attached to logged-in user
       const createdClient = await tx.client.create({
         data: {
+          userId: userId, // Attach to logged-in user
           name: client.name,
           pan: client.pan || null,
           aadhaar: client.aadhaar || null,
@@ -54,11 +76,13 @@ export default async function handler(
       })
 
       // Step 2: Create all associated works in the same transaction
+      // Works are also attached to the logged-in user
       const createdWorks = []
       if (works && works.length > 0) {
         for (const work of works) {
           const createdWork = await tx.work.create({
             data: {
+              userId: userId, // Attach to logged-in user
               clientId: createdClient.id,
               purpose: work.purpose,
               fees: work.fees || 0,
