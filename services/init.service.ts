@@ -4,7 +4,6 @@
  */
 
 import { UserService } from './user.service'
-import prisma from './database'
 
 // Admin user credentials for initial setup
 // SECURITY NOTE: The password is stored here only for initial user creation.

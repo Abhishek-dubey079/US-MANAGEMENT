@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { ClientService } from '@/services/client.service'
 import { checkIsAdmin } from '@/utils/auth.api'
 import { getSessionFromCookie } from '@/pages/api/auth/session'
 import { UserService } from '@/services/user.service'

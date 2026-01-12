@@ -12,7 +12,7 @@ interface HomeProps {
   }
 }
 
-const Home: NextPage<HomeProps> = ({ user }) => {
+const Home: NextPage<HomeProps> = ({ user: _user }) => {
   return (
     <>
       <Head>

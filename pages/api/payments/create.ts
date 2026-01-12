@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { PaymentService } from '@/services/payment.service'
 import { ensureDatabaseConnection } from '@/services/database'
 import { checkIsAdmin } from '@/utils/auth.api'
-import type { CreatePaymentInput, PaymentSummary } from '@/types'
+import type { PaymentSummary } from '@/types'
 
 export default async function handler(
   req: NextApiRequest,
