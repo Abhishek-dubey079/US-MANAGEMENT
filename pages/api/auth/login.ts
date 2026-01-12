@@ -81,21 +81,43 @@ export default async function handler(
       message: 'Login successful',
     })
   } catch (error) {
+    // Log full error details for debugging
     console.error('Error during login:', error)
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+      console.error('Error name:', error.name)
+    }
     
     if (error instanceof Error) {
-      if (error.message.includes('database')) {
+      // Database connection errors
+      if (error.message.includes('database') || 
+          error.message.includes('P1001') ||
+          error.message.includes('P1017') ||
+          error.message.includes('connection') ||
+          error.message.includes('Can\'t reach database')) {
         return res.status(503).json({ 
-          error: 'Database error. Please try again.',
+          error: 'Database connection error. Please try again.',
           retryable: true,
           details: error.message
         })
       }
+
+      // Prisma errors
+      if (error.message.includes('P') && error.message.match(/P\d{4}/)) {
+        return res.status(500).json({ 
+          error: 'Database error occurred',
+          details: error.message,
+          retryable: true
+        })
+      }
     }
 
+    // Return detailed error for debugging
     res.status(500).json({ 
       error: 'Failed to authenticate user',
       details: error instanceof Error ? error.message : 'Unknown error',
+      errorType: error instanceof Error ? error.name : 'Unknown',
       retryable: true
     })
   }

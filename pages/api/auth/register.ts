@@ -66,29 +66,53 @@ export default async function handler(
       message: 'User registered successfully',
     })
   } catch (error) {
+    // Log full error details for debugging
     console.error('Error registering user:', error)
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+      console.error('Error name:', error.name)
+    }
     
     // Handle unique constraint violations
     if (error instanceof Error) {
-      if (error.message.includes('Unique constraint') || error.message.includes('UNIQUE constraint')) {
+      if (error.message.includes('Unique constraint') || 
+          error.message.includes('UNIQUE constraint') ||
+          error.message.includes('Unique violation') ||
+          error.message.includes('P2002')) {
         return res.status(409).json({ 
           error: 'Username already exists',
-          retryable: false
+          retryable: false,
+          details: error.message
         })
       }
       
-      if (error.message.includes('database')) {
+      if (error.message.includes('database') || 
+          error.message.includes('P1001') ||
+          error.message.includes('P1017') ||
+          error.message.includes('connection')) {
         return res.status(503).json({ 
-          error: 'Database error. Please try again.',
+          error: 'Database connection error. Please try again.',
           retryable: true,
           details: error.message
         })
       }
+
+      // Prisma errors
+      if (error.message.includes('P') && error.message.match(/P\d{4}/)) {
+        return res.status(500).json({ 
+          error: 'Database error occurred',
+          details: error.message,
+          retryable: true
+        })
+      }
     }
 
+    // Return detailed error for debugging
     res.status(500).json({ 
       error: 'Failed to register user',
       details: error instanceof Error ? error.message : 'Unknown error',
+      errorType: error instanceof Error ? error.name : 'Unknown',
       retryable: true
     })
   }
