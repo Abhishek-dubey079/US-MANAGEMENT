@@ -1,3 +1,5 @@
+// force git change
+
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { checkIsAdmin } from '@/utils/auth.api'
 import { getSessionFromCookie } from '@/pages/api/auth/session'
