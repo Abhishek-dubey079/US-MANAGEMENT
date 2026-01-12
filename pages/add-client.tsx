@@ -1,4 +1,4 @@
-import type { NextPage, GetServerSideProps } from 'next'
+import type { NextPage } from 'next'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useState, useEffect } from 'react'
@@ -13,7 +13,7 @@ import type { CreateClientInput, CreateWorkInput, Client, Work } from '@/types'
 import { saveClientDraft, getClientDraft, clearClientDraft, saveWorksDraft, getWorksDraft, clearWorksDraft } from '@/utils/cache.utils'
 import { safeApiCall } from '@/utils/api.utils'
 import type { ApiError } from '@/utils/api.utils'
-import { requireAuth } from '@/utils/auth.server'
+import { checkAuth } from '@/utils/auth.utils'
 
 const AddClient: NextPage = () => {
   const router = useRouter()
@@ -22,9 +22,35 @@ const AddClient: NextPage = () => {
   const [works, setWorks] = useState<CreateWorkInput[]>([])
   const [isWorkModalOpen, setIsWorkModalOpen] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-  // Load draft data on mount
+  // Check authentication on mount
   useEffect(() => {
+    const verifyAuth = async () => {
+      try {
+        const user = await checkAuth()
+        if (user) {
+          setIsAuthenticated(true)
+        } else {
+          // Not authenticated - redirect to login
+          router.push('/login')
+        }
+      } catch (error) {
+        console.error('Error checking authentication:', error)
+        router.push('/login')
+      } finally {
+        setIsCheckingAuth(false)
+      }
+    }
+
+    verifyAuth()
+  }, [router])
+
+  // Load draft data on mount (only if authenticated)
+  useEffect(() => {
+    if (!isAuthenticated) return
+
     const draftClient = getClientDraft()
     const draftWorks = getWorksDraft()
     
@@ -34,7 +60,7 @@ const AddClient: NextPage = () => {
     if (draftWorks && draftWorks.length > 0) {
       setWorks(draftWorks)
     }
-  }, [])
+  }, [isAuthenticated])
 
   // Auto-save drafts
   useEffect(() => {
@@ -125,6 +151,27 @@ const AddClient: NextPage = () => {
 
   const handleCancel = () => {
     router.push('/')
+  }
+
+  // Show loading spinner while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <>
+        <Head>
+          <title>Add New Client - Finance Management</title>
+          <meta name="description" content="Add a new client to the system" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+        </Head>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <LoadingSpinner size="lg" text="Loading..." />
+        </div>
+      </>
+    )
+  }
+
+  // Don't render content if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null
   }
 
   return (
@@ -231,11 +278,6 @@ const AddClient: NextPage = () => {
       </div>
     </>
   )
-}
-
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  // Require authentication - redirects to login if not authenticated
-  return requireAuth(context)
 }
 
 export default AddClient
