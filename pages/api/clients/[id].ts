@@ -50,7 +50,7 @@ export default async function handler(
           works: {
             where: isAdmin === true 
               ? undefined  // Admin sees all works for this client
-              : { userId }, // Non-admin sees only their works for this client
+              : { userId: userId }, // Non-admin sees only their works for this client
             orderBy: {
               createdAt: 'desc',
             },
