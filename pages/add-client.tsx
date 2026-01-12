@@ -1,11 +1,11 @@
 import dynamic from 'next/dynamic'
 import type { NextPage } from 'next'
 
-// Dynamically import AddClientPage with SSR disabled
+// Dynamically import AddClient with SSR disabled
 // This ensures the component only renders on the client side
-// No server-side code (auth, prisma, cookies) will run during build
-const AddClientPage = dynamic(
-  () => import('@/components/AddClientPage'),
+// No server-side code will run during build
+const AddClient = dynamic(
+  () => import('@/components/AddClient.client'),
   {
     ssr: false, // Disable server-side rendering
     loading: () => (
@@ -19,8 +19,8 @@ const AddClientPage = dynamic(
   }
 )
 
-const AddClient: NextPage = () => {
-  return <AddClientPage />
+const AddClientPage: NextPage = () => {
+  return <AddClient />
 }
 
-export default AddClient
+export default AddClientPage
