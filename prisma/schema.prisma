@@ -93,13 +93,14 @@ model User {
 }
 
 model ClientDocument {
-  id         String   @id @default(cuid())
-  clientId   String
-  filename   String
-  blobUrl    String
-  size       Int
-  uploadedAt DateTime @default(now())
-  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  clientId    String
+  name        String
+  url         String
+  contentType String
+  size        Int
+  createdAt   DateTime @default(now())
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@map("client_documents")
   @@index([clientId])

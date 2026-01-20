@@ -57,13 +57,13 @@ export default async function handler(
       return res.status(404).json({ error: 'Client not found' })
     }
 
-    // Fetch documents for client, ordered by uploadedAt DESC
+    // Fetch documents for client, ordered by createdAt DESC
     const documents = await prisma.clientDocument.findMany({
       where: {
         clientId: clientId,
       },
       orderBy: {
-        uploadedAt: 'desc',
+        createdAt: 'desc',
       },
     })
 
@@ -72,10 +72,11 @@ export default async function handler(
       documents: documents.map((doc) => ({
         id: doc.id,
         clientId: doc.clientId,
-        filename: doc.filename,
-        blobUrl: doc.blobUrl,
+        name: doc.name,
+        url: doc.url,
+        contentType: doc.contentType,
         size: doc.size,
-        uploadedAt: doc.uploadedAt.toISOString(),
+        createdAt: doc.createdAt.toISOString(),
       })),
     })
   } catch (error) {

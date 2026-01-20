@@ -47,10 +47,11 @@ interface ClientDetailsProps {
 interface ClientDocument {
   id: string
   clientId: string
-  filename: string
-  blobUrl: string
+  name: string
+  url: string
+  contentType: string
   size: number
-  uploadedAt: string
+  createdAt: string
 }
 
 const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) => {
@@ -718,12 +719,14 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
   const fetchDocuments = async (clientId: string) => {
     try {
       setIsLoadingDocuments(true)
-      const response = await fetch(`/api/documents?clientId=${clientId}`)
+      const response = await fetch(`/api/clients/${clientId}/documents`)
       if (response.ok) {
         const data = await response.json()
+        console.log('Fetched documents:', data.documents?.length || 0)
         setDocuments(data.documents || [])
       } else {
-        console.error('Failed to fetch documents')
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to fetch documents:', response.status, errorData)
       }
     } catch (error) {
       console.error('Error fetching documents:', error)
@@ -745,21 +748,31 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('clientId', client.id)
 
-      const response = await fetch('/api/documents/upload', {
+      const response = await fetch(`/api/clients/${client.id}/documents`, {
         method: 'POST',
         body: formData,
       })
 
       if (!response.ok) {
         const errorData = await response.json()
-        alert(`Failed to upload document: ${errorData.error || 'Unknown error'}`)
+        console.error('Upload failed:', errorData)
+        alert(`Failed to upload document: ${errorData.error || 'Unknown error'}${errorData.details ? ` (${errorData.details})` : ''}`)
         return
       }
 
-      // Refresh documents list
-      await fetchDocuments(client.id)
+      const result = await response.json()
+      console.log('Upload response:', result)
+
+      // Only add to list if upload succeeded (DB save succeeded)
+      if (result.success && result.document) {
+        console.log('Upload successful, refreshing document list')
+        // Refresh documents list to get full document data
+        await fetchDocuments(client.id)
+      } else {
+        console.error('Upload response missing success or document:', result)
+        alert('Upload completed but response was invalid. Please refresh the page.')
+      }
 
       // Reset file input
       event.target.value = ''
@@ -796,8 +809,13 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
         throw new Error(errorData.error || 'Failed to delete document')
       }
 
-      // Refresh documents list
-      await fetchDocuments(client.id)
+      const result = await response.json()
+
+      // Only refresh if deletion succeeded
+      if (result.success) {
+        // Refresh documents list
+        await fetchDocuments(client.id)
+      }
 
       setDeleteDocumentDialog({ isOpen: false, documentId: null })
     } catch (error) {
@@ -1524,10 +1542,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-gray-900 truncate">
-                            {document.filename}
+                            {document.name}
                           </div>
                           <div className="text-xs text-gray-500">
-                            Uploaded: {formatDate(new Date(document.uploadedAt))}
+                            Uploaded: {formatDate(new Date(document.createdAt))}
                             {document.size && (
                               <span className="ml-2">
                                 ({Math.round(document.size / 1024)} KB)
@@ -1538,7 +1556,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <a
-                          href={document.blobUrl}
+                          href={document.url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 flex items-center gap-1"
