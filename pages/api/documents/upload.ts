@@ -98,7 +98,7 @@ export default async function handler(
       data: {
         clientId: clientId,
         filename: fileName,
-        url: blob.url,
+        blobUrl: blob.url,
         size: fileSize,
       },
     })
@@ -111,7 +111,7 @@ export default async function handler(
         id: document.id,
         clientId: document.clientId,
         filename: document.filename,
-        url: document.url,
+        blobUrl: document.blobUrl,
         size: document.size,
         uploadedAt: document.uploadedAt.toISOString(),
       },

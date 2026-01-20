@@ -48,7 +48,7 @@ interface ClientDocument {
   id: string
   clientId: string
   filename: string
-  url: string
+  blobUrl: string
   size: number
   uploadedAt: string
 }
@@ -1538,7 +1538,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <a
-                          href={document.url}
+                          href={document.blobUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 flex items-center gap-1"

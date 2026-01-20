@@ -96,7 +96,7 @@ model ClientDocument {
   id         String   @id @default(cuid())
   clientId   String
   filename   String
-  url        String
+  blobUrl    String
   size       Int
   uploadedAt DateTime @default(now())
   client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)

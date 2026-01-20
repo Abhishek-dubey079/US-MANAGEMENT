@@ -73,7 +73,7 @@ export default async function handler(
         id: doc.id,
         clientId: doc.clientId,
         filename: doc.filename,
-        url: doc.url,
+        blobUrl: doc.blobUrl,
         size: doc.size,
         uploadedAt: doc.uploadedAt.toISOString(),
       })),

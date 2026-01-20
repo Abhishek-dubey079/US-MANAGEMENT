@@ -83,7 +83,7 @@ export default async function handler(
 
     // Delete file from Vercel Blob
     try {
-      await del(document.url)
+      await del(document.blobUrl)
     } catch (blobError) {
       console.error('Error deleting file from Vercel Blob:', blobError)
       // Continue with database deletion even if blob deletion fails
