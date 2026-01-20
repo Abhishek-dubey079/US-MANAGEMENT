@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { requireAdmin } from '@/utils/auth.api'
+import { getSessionFromCookie } from '@/pages/api/auth/session'
+import { UserService } from '@/services/user.service'
+import { checkIsAdmin } from '@/utils/auth.api'
 import { ensureDatabaseConnection } from '@/services/database'
 import { del } from '@vercel/blob'
 
@@ -13,8 +15,27 @@ export default async function handler(
   }
 
   try {
-    // Require admin access
-    await requireAdmin(req)
+    // Get logged-in user from session
+    const userId = getSessionFromCookie(req)
+    
+    if (!userId) {
+      return res.status(401).json({ 
+        error: 'Authentication required. Please log in.',
+        retryable: false
+      })
+    }
+
+    // Verify user exists
+    const user = await UserService.findById(userId)
+    if (!user) {
+      return res.status(401).json({ 
+        error: 'Invalid session. Please log in again.',
+        retryable: false
+      })
+    }
+
+    // Check if user is admin
+    const isAdmin = await checkIsAdmin(req)
 
     // Ensure database connection
     const isConnected = await ensureDatabaseConnection()
@@ -25,26 +46,44 @@ export default async function handler(
       })
     }
 
-    const { documentId } = req.body
+    const { id } = req.query
 
-    if (!documentId || typeof documentId !== 'string') {
+    if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Document ID is required' })
     }
 
     const prisma = (await import('@/services/database')).default
 
-    // Find document
+    // Find document with client information
     const document = await prisma.clientDocument.findUnique({
-      where: { id: documentId },
+      where: { id },
+      include: {
+        client: {
+          select: {
+            id: true,
+            userId: true,
+          },
+        },
+      },
     })
 
     if (!document) {
       return res.status(404).json({ error: 'Document not found' })
     }
 
+    // Permission check:
+    // - Admin can delete any document
+    // - Non-admin can delete only documents for their own clients
+    if (isAdmin !== true && document.client.userId !== userId) {
+      return res.status(403).json({ 
+        error: 'You can only delete documents for your own clients.',
+        retryable: false
+      })
+    }
+
     // Delete file from Vercel Blob
     try {
-      await del(document.fileUrl)
+      await del(document.url)
     } catch (blobError) {
       console.error('Error deleting file from Vercel Blob:', blobError)
       // Continue with database deletion even if blob deletion fails
@@ -53,7 +92,7 @@ export default async function handler(
 
     // Delete record from database
     await prisma.clientDocument.delete({
-      where: { id: documentId },
+      where: { id },
     })
 
     return res.status(200).json({
@@ -61,21 +100,6 @@ export default async function handler(
     })
   } catch (error) {
     console.error('Error deleting document:', error)
-
-    if (error instanceof Error) {
-      if (error.message === 'Not authenticated') {
-        return res.status(401).json({ 
-          error: 'Authentication required. Please log in.',
-          retryable: false
-        })
-      }
-      if (error.message === 'Admin access required') {
-        return res.status(403).json({ 
-          error: 'Admin access required to delete documents',
-          retryable: false
-        })
-      }
-    }
 
     return res.status(500).json({ 
       error: 'Failed to delete document. Please try again.',

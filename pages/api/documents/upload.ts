@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSessionFromCookie } from '@/pages/api/auth/session'
 import { UserService } from '@/services/user.service'
-import { checkIsAdmin } from '@/utils/auth.api'
 import { ensureDatabaseConnection } from '@/services/database'
 import { put } from '@vercel/blob'
 import formidable from 'formidable'
@@ -42,14 +41,7 @@ export default async function handler(
       })
     }
 
-    // Check if user is admin (only admin can upload documents)
-    const isAdmin = await checkIsAdmin(req)
-    if (isAdmin !== true) {
-      return res.status(403).json({ 
-        error: 'Admin access required to upload documents',
-        retryable: false
-      })
-    }
+    // All logged-in users can upload documents (no admin check needed)
 
     // Ensure database connection
     const isConnected = await ensureDatabaseConnection()
@@ -93,6 +85,7 @@ export default async function handler(
     // Read file buffer
     const fileBuffer = fs.readFileSync(file.filepath)
     const fileName = file.originalFilename || file.newFilename
+    const fileSize = file.size || fileBuffer.length
 
     // Upload to Vercel Blob
     const blob = await put(fileName, fileBuffer, {
@@ -104,8 +97,9 @@ export default async function handler(
     const document = await prisma.clientDocument.create({
       data: {
         clientId: clientId,
-        fileName: fileName,
-        fileUrl: blob.url,
+        filename: fileName,
+        url: blob.url,
+        size: fileSize,
       },
     })
 
@@ -116,8 +110,9 @@ export default async function handler(
       document: {
         id: document.id,
         clientId: document.clientId,
-        fileName: document.fileName,
-        fileUrl: document.fileUrl,
+        filename: document.filename,
+        url: document.url,
+        size: document.size,
         uploadedAt: document.uploadedAt.toISOString(),
       },
       message: 'Document uploaded successfully',

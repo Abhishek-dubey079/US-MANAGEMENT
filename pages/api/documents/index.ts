@@ -44,7 +44,7 @@ export default async function handler(
     const { clientId } = req.query
 
     if (!clientId || typeof clientId !== 'string') {
-      return res.status(400).json({ error: 'Invalid client ID' })
+      return res.status(400).json({ error: 'Invalid client ID. clientId query parameter is required.' })
     }
 
     // Verify client exists
@@ -72,8 +72,9 @@ export default async function handler(
       documents: documents.map((doc) => ({
         id: doc.id,
         clientId: doc.clientId,
-        fileName: doc.fileName,
-        fileUrl: doc.fileUrl,
+        filename: doc.filename,
+        url: doc.url,
+        size: doc.size,
         uploadedAt: doc.uploadedAt.toISOString(),
       })),
     })
