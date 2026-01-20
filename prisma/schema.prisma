@@ -21,6 +21,7 @@ model Client {
   createdAt DateTime @default(now())
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   works     Work[]
+  documents ClientDocument[]
 
   @@map("clients")
   @@index([userId])
@@ -89,6 +90,18 @@ model User {
   works     Work[]
 
   @@map("users")
+}
+
+model ClientDocument {
+  id         String   @id @default(cuid())
+  clientId   String
+  fileName   String
+  fileUrl    String
+  uploadedAt DateTime @default(now())
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_documents")
+  @@index([clientId])
 }
 
 

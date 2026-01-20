@@ -15,6 +15,7 @@ import type { ApiError } from '@/utils/api.utils'
 import { validateRequired, validatePAN, validateAadhaar, validatePhone } from '@/utils/validation'
 import { clearCache, CACHE_KEYS } from '@/utils/cache.utils'
 import { requireAuth } from '@/utils/auth.server'
+import type { AuthenticatedUser } from '@/utils/auth.server'
 
 // Serialized version for getServerSideProps (dates as ISO strings)
 interface SerializedClientWithWorks {
@@ -40,9 +41,18 @@ interface SerializedClientWithWorks {
 
 interface ClientDetailsProps {
   initialClient: SerializedClientWithWorks | null
+  user: AuthenticatedUser
 }
 
-const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
+interface ClientDocument {
+  id: string
+  clientId: string
+  fileName: string
+  fileUrl: string
+  uploadedAt: string
+}
+
+const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) => {
   const router = useRouter()
   
   // Convert serialized dates back to Date objects
@@ -98,6 +108,19 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
   const [paymentInputs, setPaymentInputs] = useState<Record<string, string>>({})
   const [paymentErrors, setPaymentErrors] = useState<Record<string, string>>({})
   const [isAddingPayment, setIsAddingPayment] = useState<Record<string, boolean>>({})
+  const [documents, setDocuments] = useState<ClientDocument[]>([])
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false)
+  const [isDeletingDocument, setIsDeletingDocument] = useState<string | null>(null)
+  const [deleteDocumentDialog, setDeleteDocumentDialog] = useState<{
+    isOpen: boolean
+    documentId: string | null
+  }>({
+    isOpen: false,
+    documentId: null,
+  })
+
+  const isAdmin = user.username === 'Kapil1980'
 
   useEffect(() => {
     if (!initialClient && router.query.id) {
@@ -113,6 +136,14 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
       completedWorks.forEach((work) => {
         fetchPaymentSummary(work.id)
       })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client])
+
+  // Fetch documents for the client
+  useEffect(() => {
+    if (client) {
+      fetchDocuments(client.id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client])
@@ -677,6 +708,110 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
     } finally {
       // Always reset loading state
       setIsAddingPayment((prev) => ({ ...prev, [workId]: false }))
+    }
+  }
+
+  /**
+   * Fetch documents for the client
+   */
+  const fetchDocuments = async (clientId: string) => {
+    try {
+      setIsLoadingDocuments(true)
+      const response = await fetch(`/api/documents/${clientId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setDocuments(data.documents || [])
+      } else {
+        console.error('Failed to fetch documents')
+      }
+    } catch (error) {
+      console.error('Error fetching documents:', error)
+    } finally {
+      setIsLoadingDocuments(false)
+    }
+  }
+
+  /**
+   * Handle document upload
+   */
+  const handleUploadDocument = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!client || !event.target.files || event.target.files.length === 0) return
+
+    const file = event.target.files[0]
+    if (!file) return
+
+    setIsUploadingDocument(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('clientId', client.id)
+
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        alert(`Failed to upload document: ${errorData.error || 'Unknown error'}`)
+        return
+      }
+
+      // Refresh documents list
+      await fetchDocuments(client.id)
+
+      // Reset file input
+      event.target.value = ''
+    } catch (error) {
+      console.error('Error uploading document:', error)
+      alert('Failed to upload document. Please try again.')
+    } finally {
+      setIsUploadingDocument(false)
+    }
+  }
+
+  /**
+   * Handle delete document click
+   */
+  const handleDeleteDocumentClick = (documentId: string) => {
+    setDeleteDocumentDialog({ isOpen: true, documentId })
+  }
+
+  const handleCancelDeleteDocument = () => {
+    setDeleteDocumentDialog({ isOpen: false, documentId: null })
+  }
+
+  const handleConfirmDeleteDocument = async () => {
+    if (!client || !deleteDocumentDialog.documentId) return
+
+    setIsDeletingDocument(deleteDocumentDialog.documentId)
+    try {
+      const response = await fetch('/api/documents/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentId: deleteDocumentDialog.documentId,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete document')
+      }
+
+      // Refresh documents list
+      await fetchDocuments(client.id)
+
+      setDeleteDocumentDialog({ isOpen: false, documentId: null })
+    } catch (error) {
+      console.error('Error deleting document:', error)
+      setIsDeletingDocument(null)
+      setDeleteDocumentDialog({ isOpen: false, documentId: null })
+      alert(`Failed to delete document: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsDeletingDocument(null)
     }
   }
 
@@ -1334,6 +1469,115 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
               )}
             </div>
 
+            {/* Documents Section */}
+            <SectionCard 
+              title="Documents" 
+              className="mt-6"
+            >
+              {isAdmin && (
+                <div className="mb-4 pb-4 border-b border-gray-200">
+                  <label className="block">
+                    <input
+                      type="file"
+                      onChange={handleUploadDocument}
+                      disabled={isUploadingDocument}
+                      className="hidden"
+                      id="document-upload"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('document-upload')?.click()}
+                      disabled={isUploadingDocument}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isUploadingDocument ? (
+                        <>
+                          <LoadingSpinner size="sm" />
+                          <span>Uploading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          <span>Upload Document</span>
+                        </>
+                      )}
+                    </button>
+                  </label>
+                </div>
+              )}
+
+              {isLoadingDocuments ? (
+                <div className="py-8 text-center">
+                  <LoadingSpinner size="sm" text="Loading documents..." />
+                </div>
+              ) : documents.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  <p>No documents found for this client.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {documents.map((document) => (
+                    <div
+                      key={document.id}
+                      className="flex items-center justify-between p-4 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="flex-shrink-0">
+                          <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">
+                            {document.fileName}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Uploaded: {formatDate(new Date(document.uploadedAt))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <a
+                          href={document.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 flex items-center gap-1"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          <span>Download</span>
+                        </a>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDeleteDocumentClick(document.id)}
+                            disabled={isDeletingDocument === document.id}
+                            className="rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                          >
+                            {isDeletingDocument === document.id ? (
+                              <>
+                                <LoadingSpinner size="sm" />
+                                <span>Deleting...</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span>Delete</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+
             {/* Confirmation Dialog */}
             <ConfirmDialog
               isOpen={confirmDialog.isOpen}
@@ -1373,6 +1617,17 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient }) => {
               cancelText="Cancel"
               onConfirm={handleConfirmDelete}
               onCancel={handleCancelDelete}
+            />
+
+            {/* Delete Document Confirmation Dialog */}
+            <ConfirmDialog
+              isOpen={deleteDocumentDialog.isOpen}
+              title="Delete Document"
+              message="Are you sure you want to delete this document? This action cannot be undone."
+              confirmText="Delete"
+              cancelText="Cancel"
+              onConfirm={handleConfirmDeleteDocument}
+              onCancel={handleCancelDeleteDocument}
             />
 
             {/* Work Modal */}
