@@ -785,6 +785,30 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
   }
 
   /**
+   * Handle document download with forced download
+   */
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = filename
+
+      document.body.appendChild(link)
+      link.click()
+
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Error downloading document:', error)
+      alert('Failed to download document. Please try again.')
+    }
+  }
+
+  /**
    * Handle delete document click
    */
   const handleDeleteDocumentClick = (documentId: string) => {
@@ -1567,6 +1591,15 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                           </svg>
                           <span>View</span>
                         </a>
+                        <button
+                          onClick={() => handleDownload(document.url, document.name)}
+                          className="rounded-lg bg-blue-100 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center gap-1"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          <span>Download</span>
+                        </button>
                         <button
                           onClick={() => handleDeleteDocumentClick(document.id)}
                           disabled={isDeletingDocument === document.id}
