@@ -56,7 +56,7 @@ interface ClientDocument {
 
 const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) => {
   const router = useRouter()
-  
+
   // Convert serialized dates back to Date objects
   const deserializeClient = (clientData: SerializedClientWithWorks): ClientWithWorks | null => {
     if (!clientData) return null
@@ -73,7 +73,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
       })),
     }
   }
-  
+
   const [client, setClient] = useState<ClientWithWorks | null>(
     initialClient ? deserializeClient(initialClient) : null
   )
@@ -121,6 +121,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
     isOpen: false,
     documentId: null,
   })
+  const [editingWork, setEditingWork] = useState<Work | null>(null)
 
   const isAdmin = user.username === 'Kapil1980'
 
@@ -194,7 +195,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
       // Check if remainingAmount === 0 before allowing final completion
       const summary = paymentSummaries[workId]
       const remainingAmount = summary?.remainingAmount ?? 0
-      
+
       // Final completion ONLY allowed if remainingAmount === 0 (all payments received)
       if (remainingAmount !== 0) {
         setPaymentErrors((prev) => ({
@@ -203,7 +204,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
         }))
         return
       }
-      
+
       // Move from completed to final completed (work done, all payments received)
       setConfirmDialog({
         isOpen: true,
@@ -235,8 +236,8 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
     // Note: paymentReceived flag is no longer used for logic - only for display compatibility
     const originalClient = client
     const updatedWorks = client.works.map((work) =>
-      work.id === workId 
-        ? { ...work, status: newStatus, paymentReceived: newStatus === 'finalCompleted' } 
+      work.id === workId
+        ? { ...work, status: newStatus, paymentReceived: newStatus === 'finalCompleted' }
         : work
     )
     setClient({ ...client, works: updatedWorks })
@@ -260,12 +261,12 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
         if (router.query.id) {
           await fetchClient(router.query.id as string)
         }
-        
+
         // Notify dashboard to refresh history if work became finalCompleted
         // This ensures history section stays up-to-date
         if (newStatus === 'finalCompleted' && typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('workStatusChanged', { 
-            detail: { status: 'finalCompleted' } 
+          window.dispatchEvent(new CustomEvent('workStatusChanged', {
+            detail: { status: 'finalCompleted' }
           }))
         }
       }
@@ -371,7 +372,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
 
     // Validate form
     const errors: Record<string, string> = {}
-    
+
     // Validate name (required)
     const nameValidation = validateRequired(editFormData.name || '', 'Client Name is required')
     if (!nameValidation.isValid && nameValidation.error) {
@@ -589,7 +590,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
    */
   const handleAddPayment = async (workId: string) => {
     const amountStr = paymentInputs[workId]?.trim()
-    
+
     // Client-side validation
     if (!amountStr) {
       setPaymentErrors((prev) => ({ ...prev, [workId]: 'Payment amount is required' }))
@@ -605,9 +606,9 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
     // Check against current remaining balance (if available)
     const summary = paymentSummaries[workId]
     if (summary && amount > summary.remainingAmount) {
-      setPaymentErrors((prev) => ({ 
-        ...prev, 
-        [workId]: `Payment amount (${formatCurrency(amount)}) exceeds remaining amount (${formatCurrency(summary.remainingAmount)})` 
+      setPaymentErrors((prev) => ({
+        ...prev,
+        [workId]: `Payment amount (${formatCurrency(amount)}) exceeds remaining amount (${formatCurrency(summary.remainingAmount)})`
       }))
       return
     }
@@ -644,7 +645,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
       // On success: Update payment summary with API response
       // The API returns recalculated totalPaid and remainingAmount
       setPaymentSummaries((prev) => ({ ...prev, [workId]: response.summary }))
-      
+
       // Clear payment input
       setPaymentInputs((prev) => ({ ...prev, [workId]: '' }))
 
@@ -669,11 +670,11 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
       }
     } catch (error) {
       console.error('Error adding payment:', error)
-      
+
       // Extract error message from API error
       const apiError = error as ApiError
       let errorMessage = 'Failed to add payment. Please try again.'
-      
+
       // Handle different error scenarios
       if (apiError.message) {
         errorMessage = apiError.message
@@ -703,8 +704,8 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
       }
 
       // Show error message to user
-      setPaymentErrors((prev) => ({ 
-        ...prev, 
+      setPaymentErrors((prev) => ({
+        ...prev,
         [workId]: errorMessage
       }))
     } finally {
@@ -857,6 +858,12 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
    * New work always starts with status 'pending' and paymentReceived: false
    */
   const handleAddWork = () => {
+    setEditingWork(null)
+    setIsWorkModalOpen(true)
+  }
+
+  const handleEditWork = (work: Work) => {
+    setEditingWork(work)
     setIsWorkModalOpen(true)
   }
 
@@ -865,23 +872,40 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
 
     setIsAddingWork(true)
     try {
-      await safeApiCall<{
-        work: Work
-        message: string
-      }>('/api/works/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...workData,
-          status: 'pending', // Always start as pending
-          paymentReceived: false, // Always start with payment not received
-        }),
-      }, 3)
+      if (editingWork) {
+        // Update existing work
+        await safeApiCall<Work>(
+          `/api/works/${editingWork.id}/update`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(workData),
+          },
+          3
+        )
+      } else {
+        // Create new work
+        await safeApiCall<{
+          work: Work
+          message: string
+        }>('/api/works/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...workData,
+            status: 'pending', // Always start as pending
+            paymentReceived: false, // Always start with payment not received
+          }),
+        }, 3)
+      }
 
       // Close modal
       setIsWorkModalOpen(false)
+      setEditingWork(null)
 
       // Refresh client data to show the new work
       if (router.query.id) {
@@ -907,9 +931,8 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
     return (
       <div
         key={work.id}
-        className={`rounded-lg border ${
-          isLocked ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'
-        } p-4`}
+        className={`rounded-lg border ${isLocked ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'
+          } p-4`}
       >
         <div className="flex items-start gap-4">
           <div className="flex-1">
@@ -928,234 +951,249 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                     </span>
                   )}
                 </div>
-                {/* Delete button - only for Final Completed works */}
-                {work.status === 'finalCompleted' && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteWorkClick(work.id)
-                    }}
-                    disabled={isDeletingWork}
-                    className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Delete this completed work"
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">
-                <div>
-                  <span className="font-medium text-gray-700">Fees:</span>{' '}
-                  <span className="text-gray-900">{formatCurrency(work.fees)}</span>
+                <div className="flex items-center gap-2">
+                  {/* Edit button - only for Admin and non-finalCompleted works */}
+                  {isAdmin && work.status !== 'finalCompleted' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditWork(work)
+                      }}
+                      className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                      title="Edit this work"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  )}
+                  {/* Delete button - only for Final Completed works */}
+                  {work.status === 'finalCompleted' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteWorkClick(work.id)
+                      }}
+                      disabled={isDeletingWork}
+                      className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Delete this completed work"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <span className="font-medium text-gray-700">Completion Date:</span>{' '}
-                  <span className="text-gray-900">
-                    {work.completionDate ? formatDate(work.completionDate) : '-'}
-                  </span>
-                </div>
-                {work.status === 'completed' && (
-                  <>
-                    <div className="sm:col-span-2 flex items-center gap-2">
-                      <span className="font-medium text-gray-700">Payment Status:</span>{' '}
-                      {(() => {
-                        const remainingAmount = paymentSummaries[work.id]?.remainingAmount ?? work.fees
-                        const isFullyPaid = remainingAmount === 0
-                        
-                        return isFullyPaid ? (
-                          <span className="text-green-600 font-semibold flex items-center gap-1">
-                            <CheckIcon size={16} className="text-green-600" />
-                            Fully Paid
-                          </span>
-                        ) : (
-                          <span className="text-red-600 font-semibold flex items-center gap-1">
-                            <CrossIcon size={16} className="text-red-600" />
-                            Payment Pending
-                          </span>
-                        )
-                      })()}
-                    </div>
-                    {/* Payment Summary - Always show for completed works */}
-                    <div className="sm:col-span-2 grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <div>
-                        <span className="block text-xs text-gray-600 mb-1">Total Fees</span>
-                        <span className="text-sm font-semibold text-gray-900">
-                          {paymentSummaries[work.id] 
-                            ? formatCurrency(paymentSummaries[work.id].totalFees) 
-                            : formatCurrency(work.fees)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-xs text-gray-600 mb-1">Total Paid</span>
-                        <span className="text-sm font-semibold text-green-600">
-                          {paymentSummaries[work.id] 
-                            ? formatCurrency(paymentSummaries[work.id].totalPaid) 
-                            : formatCurrency(0)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-xs text-gray-600 mb-1">Remaining Balance</span>
-                        <span className={`text-sm font-semibold ${
-                          (paymentSummaries[work.id]?.remainingAmount ?? work.fees) === 0
-                            ? 'text-green-600'
-                            : 'text-red-600'
-                        }`}>
-                          {paymentSummaries[work.id] 
-                            ? formatCurrency(paymentSummaries[work.id].remainingAmount) 
-                            : formatCurrency(work.fees)}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
-                {work.status === 'finalCompleted' && (
-                  <div className="sm:col-span-2 flex items-center gap-2">
-                    <span className="font-medium text-gray-700">Payment Status:</span>{' '}
-                    <span className="text-green-600 font-semibold flex items-center gap-1">
-                      <CheckIcon size={16} className="text-green-600" />
-                      Payment received
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">
+                  <div>
+                    <span className="font-medium text-gray-700">Fees:</span>{' '}
+                    <span className="text-gray-900">{formatCurrency(work.fees)}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Completion Date:</span>{' '}
+                    <span className="text-gray-900">
+                      {work.completionDate ? formatDate(work.completionDate) : '-'}
                     </span>
                   </div>
-                )}
-              </div>
-            </div>
+                  {work.status === 'completed' && (
+                    <>
+                      <div className="sm:col-span-2 flex items-center gap-2">
+                        <span className="font-medium text-gray-700">Payment Status:</span>{' '}
+                        {(() => {
+                          const remainingAmount = paymentSummaries[work.id]?.remainingAmount ?? work.fees
+                          const isFullyPaid = remainingAmount === 0
 
-            {/* Status Checkbox */}
-            <div className="border-t border-gray-200 pt-3 mt-3">
-              {work.status === 'pending' && (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={false}
-                    onChange={() => handleStatusClick(work.id, work.status)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                  <span className="text-sm text-gray-700">
-                    Mark as Completed (Work Done, Payment Pending)
-                  </span>
-                </label>
-              )}
-              {work.status === 'completed' && (
-                <div className="space-y-3">
-                  {/* Payment Input Section */}
-                  <div className="space-y-2">
-                    <label htmlFor={`payment-${work.id}`} className="block text-sm font-medium text-gray-700">
-                      Enter payment amount
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        id={`payment-${work.id}`}
-                        value={paymentInputs[work.id] || ''}
-                        onChange={(e) => handlePaymentInputChange(work.id, e.target.value)}
-                        placeholder="0.00"
-                        min="0"
-                        step="0.01"
-                        disabled={isAddingPayment[work.id]}
-                        className={`flex-1 rounded-lg border ${
-                          paymentErrors[work.id]
+                          return isFullyPaid ? (
+                            <span className="text-green-600 font-semibold flex items-center gap-1">
+                              <CheckIcon size={16} className="text-green-600" />
+                              Fully Paid
+                            </span>
+                          ) : (
+                            <span className="text-red-600 font-semibold flex items-center gap-1">
+                              <CrossIcon size={16} className="text-red-600" />
+                              Payment Pending
+                            </span>
+                          )
+                        })()}
+                      </div>
+                      {/* Payment Summary - Always show for completed works */}
+                      <div className="sm:col-span-2 grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <div>
+                          <span className="block text-xs text-gray-600 mb-1">Total Fees</span>
+                          <span className="text-sm font-semibold text-gray-900">
+                            {paymentSummaries[work.id]
+                              ? formatCurrency(paymentSummaries[work.id].totalFees)
+                              : formatCurrency(work.fees)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-xs text-gray-600 mb-1">Total Paid</span>
+                          <span className="text-sm font-semibold text-green-600">
+                            {paymentSummaries[work.id]
+                              ? formatCurrency(paymentSummaries[work.id].totalPaid)
+                              : formatCurrency(0)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-xs text-gray-600 mb-1">Remaining Balance</span>
+                          <span className={`text-sm font-semibold ${(paymentSummaries[work.id]?.remainingAmount ?? work.fees) === 0
+                            ? 'text-green-600'
+                            : 'text-red-600'
+                            }`}>
+                            {paymentSummaries[work.id]
+                              ? formatCurrency(paymentSummaries[work.id].remainingAmount)
+                              : formatCurrency(work.fees)}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {work.status === 'finalCompleted' && (
+                    <div className="sm:col-span-2 flex items-center gap-2">
+                      <span className="font-medium text-gray-700">Payment Status:</span>{' '}
+                      <span className="text-green-600 font-semibold flex items-center gap-1">
+                        <CheckIcon size={16} className="text-green-600" />
+                        Payment received
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Status Checkbox */}
+              <div className="border-t border-gray-200 pt-3 mt-3">
+                {work.status === 'pending' && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={false}
+                      onChange={() => handleStatusClick(work.id, work.status)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span className="text-sm text-gray-700">
+                      Mark as Completed (Work Done, Payment Pending)
+                    </span>
+                  </label>
+                )}
+                {work.status === 'completed' && (
+                  <div className="space-y-3">
+                    {/* Payment Input Section */}
+                    <div className="space-y-2">
+                      <label htmlFor={`payment-${work.id}`} className="block text-sm font-medium text-gray-700">
+                        Enter payment amount
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          id={`payment-${work.id}`}
+                          value={paymentInputs[work.id] || ''}
+                          onChange={(e) => handlePaymentInputChange(work.id, e.target.value)}
+                          placeholder="0.00"
+                          min="0"
+                          step="0.01"
+                          disabled={isAddingPayment[work.id]}
+                          className={`flex-1 rounded-lg border ${paymentErrors[work.id]
                             ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
                             : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                        } px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed`}
-                      />
-                      <button
-                        onClick={() => handleAddPayment(work.id)}
-                        disabled={isAddingPayment[work.id] || !paymentInputs[work.id]?.trim()}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {isAddingPayment[work.id] ? 'Adding...' : 'Add Payment'}
-                      </button>
+                            } px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed`}
+                        />
+                        <button
+                          onClick={() => handleAddPayment(work.id)}
+                          disabled={isAddingPayment[work.id] || !paymentInputs[work.id]?.trim()}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {isAddingPayment[work.id] ? 'Adding...' : 'Add Payment'}
+                        </button>
+                      </div>
+                      {paymentErrors[work.id] && (
+                        <p className="text-sm text-red-600">{paymentErrors[work.id]}</p>
+                      )}
                     </div>
-                    {paymentErrors[work.id] && (
-                      <p className="text-sm text-red-600">{paymentErrors[work.id]}</p>
-                    )}
-                  </div>
-                  
-                  {/* Payment History */}
-                  {paymentSummaries[work.id] && paymentSummaries[work.id].payments && paymentSummaries[work.id].payments.length > 0 && (
-                    <div className="space-y-2 border-t border-gray-200 pt-3">
-                      <h4 className="text-sm font-semibold text-gray-700">Payment History</h4>
-                      <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                        {paymentSummaries[work.id].payments.map((payment) => {
-                          // Handle paymentDate as either Date object or ISO string
-                          const paymentDate = payment.paymentDate instanceof Date 
-                            ? payment.paymentDate 
-                            : new Date(payment.paymentDate)
-                          
-                          return (
-                            <div
-                              key={payment.id}
-                              className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
-                            >
-                              <div className="flex items-center gap-3 flex-1">
-                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                                  <CheckIcon size={14} className="text-green-600" />
-                                </div>
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-900">
-                                    {formatCurrency(payment.amount)}
+
+                    {/* Payment History */}
+                    {paymentSummaries[work.id] && paymentSummaries[work.id].payments && paymentSummaries[work.id].payments.length > 0 && (
+                      <div className="space-y-2 border-t border-gray-200 pt-3">
+                        <h4 className="text-sm font-semibold text-gray-700">Payment History</h4>
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                          {paymentSummaries[work.id].payments.map((payment) => {
+                            // Handle paymentDate as either Date object or ISO string
+                            const paymentDate = payment.paymentDate instanceof Date
+                              ? payment.paymentDate
+                              : new Date(payment.paymentDate)
+
+                            return (
+                              <div
+                                key={payment.id}
+                                className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                              >
+                                <div className="flex items-center gap-3 flex-1">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                                    <CheckIcon size={14} className="text-green-600" />
                                   </div>
-                                  <div className="text-xs text-gray-500">
-                                    {formatDate(paymentDate)}
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium text-gray-900">
+                                      {formatCurrency(payment.amount)}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {formatDate(paymentDate)}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Final Completion - Only show when fully paid */}
-                  {(() => {
-                    const remainingAmount = paymentSummaries[work.id]?.remainingAmount ?? work.fees
-                    const isFullyPaid = remainingAmount === 0
-                    
-                    if (!isFullyPaid) {
-                      // Hide final completion when balance remains
-                      return (
-                        <div className="text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                          <span className="font-medium text-yellow-800">
-                            Complete payment to mark as Final Completed
-                          </span>
-                          <span className="block mt-1 text-xs text-yellow-700">
-                            Remaining balance: {formatCurrency(remainingAmount)}
-                          </span>
+                            )
+                          })}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Final Completion - Only show when fully paid */}
+                    {(() => {
+                      const remainingAmount = paymentSummaries[work.id]?.remainingAmount ?? work.fees
+                      const isFullyPaid = remainingAmount === 0
+
+                      if (!isFullyPaid) {
+                        // Hide final completion when balance remains
+                        return (
+                          <div className="text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                            <span className="font-medium text-yellow-800">
+                              Complete payment to mark as Final Completed
+                            </span>
+                            <span className="block mt-1 text-xs text-yellow-700">
+                              Remaining balance: {formatCurrency(remainingAmount)}
+                            </span>
+                          </div>
+                        )
+                      }
+
+                      // Show final completion checkbox only when fully paid
+                      return (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            onChange={() => handleStatusClick(work.id, work.status)}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <span className="text-sm font-medium text-gray-700">
+                            Mark as Final Completed
+                          </span>
+                        </label>
                       )
-                    }
-                    
-                    // Show final completion checkbox only when fully paid
-                    return (
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={false}
-                          onChange={() => handleStatusClick(work.id, work.status)}
-                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                          Mark as Final Completed
-                        </span>
-                      </label>
-                    )
-                  })()}
-                </div>
-              )}
-              {work.status === 'finalCompleted' && (
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={true}
-                    disabled
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 opacity-50 cursor-not-allowed"
-                  />
-                  <span className="text-sm text-gray-500">Final Completed - Payment Received (Locked)</span>
-                </label>
-              )}
+                    })()}
+                  </div>
+                )}
+                {work.status === 'finalCompleted' && (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={true}
+                      disabled
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 opacity-50 cursor-not-allowed"
+                    />
+                    <span className="text-sm text-gray-500">Final Completed - Payment Received (Locked)</span>
+                  </label>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1255,8 +1293,8 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
             </div>
 
             {/* Client Information Card */}
-            <SectionCard 
-              title="Client Information" 
+            <SectionCard
+              title="Client Information"
               className="mb-6"
               headerClassName="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
             >
@@ -1345,11 +1383,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                         value={editFormData.name || ''}
                         onChange={(e) => handleEditFieldChange('name', e.target.value)}
                         onBlur={() => handleEditFieldBlur('name')}
-                        className={`block w-full rounded-lg border ${
-                          editErrors.name
-                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                        } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        className={`block w-full rounded-lg border ${editErrors.name
+                          ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                          : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                          } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
                         placeholder="Enter client or company name"
                         required
                       />
@@ -1372,11 +1409,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                           handleEditFieldChange('pan', formattedPan)
                         }}
                         onBlur={() => handleEditFieldBlur('pan')}
-                        className={`block w-full rounded-lg border ${
-                          editErrors.pan
-                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                        } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        className={`block w-full rounded-lg border ${editErrors.pan
+                          ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                          : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                          } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
                         placeholder="ABCDE1234F"
                         maxLength={10}
                       />
@@ -1399,11 +1435,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                           handleEditFieldChange('aadhaar', numericValue)
                         }}
                         onBlur={() => handleEditFieldBlur('aadhaar')}
-                        className={`block w-full rounded-lg border ${
-                          editErrors.aadhaar
-                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                        } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        className={`block w-full rounded-lg border ${editErrors.aadhaar
+                          ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                          : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                          } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
                         placeholder="123456789012"
                         maxLength={12}
                       />
@@ -1426,11 +1461,10 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
                           handleEditFieldChange('phone', numericValue)
                         }}
                         onBlur={() => handleEditFieldBlur('phone')}
-                        className={`block w-full rounded-lg border ${
-                          editErrors.phone
-                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                        } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                        className={`block w-full rounded-lg border ${editErrors.phone
+                          ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                          : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                          } px-3 py-2.5 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
                         placeholder="10-digit number"
                         maxLength={10}
                       />
@@ -1462,7 +1496,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
             <div className="space-y-6">
               {/* Pending Works Section */}
               {pendingWorks.length > 0 && (
-                <SectionCard 
+                <SectionCard
                   title={`PENDING (${pendingWorks.length})`}
                   borderColor="yellow"
                 >
@@ -1474,7 +1508,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
 
               {/* Completed Works Section - Work done, payment pending */}
               {completedWorks.length > 0 && (
-                <SectionCard 
+                <SectionCard
                   title={`COMPLETED - Payment Pending (${completedWorks.length})`}
                   borderColor="red"
                 >
@@ -1486,7 +1520,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
 
               {/* Final Completed Works Section - Work done, payment received */}
               {finalCompletedWorks.length > 0 && (
-                <SectionCard 
+                <SectionCard
                   title={`FINAL COMPLETED - Payment Received (${finalCompletedWorks.length})`}
                   borderColor="green"
                 >
@@ -1507,8 +1541,8 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
             </div>
 
             {/* Documents Section */}
-            <SectionCard 
-              title="Documents" 
+            <SectionCard
+              title="Documents"
               className="mt-6"
             >
               <div className="mb-4 pb-4 border-b border-gray-200">
@@ -1682,9 +1716,13 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
             {/* Work Modal */}
             <WorkModal
               isOpen={isWorkModalOpen}
-              onClose={() => setIsWorkModalOpen(false)}
+              onClose={() => {
+                setIsWorkModalOpen(false)
+                setEditingWork(null)
+              }}
               onSave={handleSaveWork}
               clientId={client.id}
+              work={editingWork || undefined}
             />
           </div>
         </div>
@@ -1696,7 +1734,7 @@ const ClientDetails: NextPage<ClientDetailsProps> = ({ initialClient, user }) =>
 export const getServerSideProps: GetServerSideProps = async (context) => {
   // First, check authentication
   const authResult = await requireAuth(context)
-  
+
   // If not authenticated, requireAuth returns a redirect
   if ('redirect' in authResult) {
     return authResult
@@ -1712,7 +1750,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     // Import service directly for server-side rendering
     const { ClientService } = await import('@/services/client.service')
     const client = await ClientService.findByIdWithWorks(id as string)
-    
+
     if (client) {
       // Serialize Date objects to ISO strings for JSON serialization
       // Next.js getServerSideProps requires JSON-serializable data
@@ -1727,7 +1765,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
           paymentReceived: work.paymentReceived,
         })),
       }
-      
+
       return {
         props: {
           user,
@@ -1748,4 +1786,3 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
 }
 
 export default ClientDetails
-

@@ -22,6 +22,8 @@ model Client {
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   works     Work[]
   documents ClientDocument[]
+  gstReminders GstReminderStatus[]
+
 
   @@map("clients")
   @@index([userId])
@@ -106,4 +108,14 @@ model ClientDocument {
   @@index([clientId])
 }
 
+model GstReminderStatus {
+  id          String   @id @default(cuid())
+  clientId    String
+  month       String   // YYYY-MM format
+  status      String   @default("PENDING") // "PENDING" | "DONE"
+  completedAt DateTime?
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@unique([clientId, month])
+  @@map("gst_reminder_status")
+}

@@ -16,9 +16,9 @@ export default async function handler(
   try {
     // Get logged-in user from session
     const userId = getSessionFromCookie(req)
-    
+
     if (!userId) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: 'Authentication required. Please log in to create works.',
         retryable: false
       })
@@ -27,7 +27,7 @@ export default async function handler(
     // Verify user exists
     const user = await UserService.findById(userId)
     if (!user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: 'Invalid session. Please log in again.',
         retryable: false
       })
@@ -36,7 +36,7 @@ export default async function handler(
     // Ensure database connection
     const isConnected = await ensureDatabaseConnection()
     if (!isConnected) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         error: 'Database connection failed. Please try again.',
         retryable: true
       })
@@ -46,8 +46,8 @@ export default async function handler(
 
     // Validate required fields
     if (!clientId || !purpose || purpose.trim() === '') {
-      return res.status(400).json({ 
-        error: 'Client ID and purpose are required' 
+      return res.status(400).json({
+        error: 'Client ID and purpose are required'
       })
     }
 
@@ -61,19 +61,20 @@ export default async function handler(
         userId: true,
       },
     })
-    
+
     if (!clientPrisma) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'Client not found',
         retryable: false
       })
     }
 
     // Prevent cross-user access: ensure client belongs to the logged-in user
-    // If client.userId is null (existing data), we allow creating work but link it to logged-in user
-    // If client.userId exists, it must match the logged-in user
-    if (clientPrisma.userId !== null && clientPrisma.userId !== userId) {
-      return res.status(403).json({ 
+    // Admins can create works for any client
+    const isAdmin = user.username === 'Kapil1980'
+
+    if (!isAdmin && clientPrisma.userId !== null && clientPrisma.userId !== userId) {
+      return res.status(403).json({
         error: 'Access denied. You can only create works for your own clients.',
         retryable: false
       })
@@ -100,7 +101,7 @@ export default async function handler(
     // Use Prisma directly to set userId during creation
     const { toPrismaStatus } = await import('@/utils/status.utils')
     const { mapWork } = await import('@/utils/mappers')
-    
+
     const createdWorkPrisma = await prisma.work.create({
       data: {
         userId: workUserId, // Link work to client's userId (matches client ownership)
@@ -112,7 +113,7 @@ export default async function handler(
         paymentReceived: workData.paymentReceived ?? false,
       },
     })
-    
+
     // Convert Prisma model to TypeScript type
     const createdWork = mapWork(createdWorkPrisma)
 
@@ -122,17 +123,17 @@ export default async function handler(
     })
   } catch (error) {
     console.error('Error creating work:', error)
-    
+
     if (error instanceof Error) {
       if (error.message.includes('Foreign key') || error.message.includes('clientId')) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: 'Client not found',
           retryable: false
         })
       }
     }
 
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create work',
       details: error instanceof Error ? error.message : 'Unknown error',
       retryable: true

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { CreateWorkInput } from '@/types'
+import type { CreateWorkInput, Work } from '@/types'
 import { formatDateForInput } from '@/utils/formatters'
 
 interface WorkModalProps {
@@ -7,14 +7,15 @@ interface WorkModalProps {
   onClose: () => void
   onSave: (work: CreateWorkInput) => void
   clientId?: string
+  work?: Work // Existing work for editing
 }
 
-export default function WorkModal({ isOpen, onClose, onSave, clientId = '' }: WorkModalProps) {
+export default function WorkModal({ isOpen, onClose, onSave, clientId = '', work }: WorkModalProps) {
   const [formData, setFormData] = useState<CreateWorkInput>({
-    clientId: clientId,
-    purpose: '',
-    fees: undefined,
-    completionDate: undefined,
+    clientId: work?.clientId || clientId,
+    purpose: work?.purpose || '',
+    fees: work?.fees,
+    completionDate: work?.completionDate ? new Date(work.completionDate) : undefined,
   })
 
   const [errors, setErrors] = useState<{
@@ -26,14 +27,14 @@ export default function WorkModal({ isOpen, onClose, onSave, clientId = '' }: Wo
     if (isOpen) {
       // Reset form when modal opens
       setFormData({
-        clientId: clientId,
-        purpose: '',
-        fees: undefined,
-        completionDate: undefined,
+        clientId: work?.clientId || clientId,
+        purpose: work?.purpose || '',
+        fees: work?.fees,
+        completionDate: work?.completionDate ? new Date(work.completionDate) : undefined,
       })
       setErrors({})
     }
-  }, [isOpen, clientId])
+  }, [isOpen, clientId, work])
 
   const handleChange = (field: keyof CreateWorkInput, value: string | number | Date | undefined) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -94,7 +95,9 @@ export default function WorkModal({ isOpen, onClose, onSave, clientId = '' }: Wo
         {/* Modal Header */}
         <div className="border-b border-gray-200 px-4 sm:px-6 py-3.5">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 tracking-tight">Add Work</h2>
+            <h2 className="text-lg font-semibold text-gray-900 tracking-tight">
+              {work ? 'Edit Work' : 'Add Work'}
+            </h2>
             <button
               onClick={onClose}
               className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -124,11 +127,10 @@ export default function WorkModal({ isOpen, onClose, onSave, clientId = '' }: Wo
                 id="purpose"
                 value={formData.purpose}
                 onChange={(e) => handleChange('purpose', e.target.value)}
-                className={`block w-full rounded-lg border ${
-                  errors.purpose
-                    ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                    : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                className={`block w-full rounded-lg border ${errors.purpose
+                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                  : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                  } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
                 placeholder="Enter purpose of work"
               />
               {errors.purpose && (
@@ -148,11 +150,10 @@ export default function WorkModal({ isOpen, onClose, onSave, clientId = '' }: Wo
                 onChange={(e) => handleFeesChange(e.target.value)}
                 min="0"
                 step="0.01"
-                className={`block w-full rounded-lg border ${
-                  errors.fees
-                    ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                    : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
+                className={`block w-full rounded-lg border ${errors.fees
+                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                  : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                  } px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2`}
                 placeholder="0.00"
               />
               {errors.fees && (
